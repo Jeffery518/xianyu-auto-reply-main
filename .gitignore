@@ -1,0 +1,60 @@
+# ==============
+# 1. 敏感数据与凭证 (Security - 极其重要)
+# ==============
+# 浏览器指纹、身份Cookie、Session数据（防止账号被盗用，且数据量庞大）
+browser_data/
+
+# 业务数据库（包含私聊消息、订单、用户隐私内容）
+*.db
+*.sqlite
+*.sqlite3
+data.db
+xianyu.db
+
+# 核心配置文件 (建议在本地保留，Git中仅提交 global_config.example.yml 等脱敏模板)
+global_config.yml
+*.env
+.env
+secret.key
+
+# ==============
+# 2. 运行时产生的大文件与日志 (Efficiency - 提升上传与Clone效率)
+# ==============
+# 日志文件（体积增长块，无版本控制价值）
+logs/
+*.log
+realtime.log
+pyarmor.bug.log
+
+# 备份与更新历史（体积大且冗余）
+backups/
+update_backup/
+update_files.json
+
+# 轨迹验证产生的数据
+trajectory_history/
+
+# 运行过程中临时生成的特定数据目录
+data/
+
+# ==============
+# 3. Python 编译缓存与虚拟环境 (Standard Ignores)
+# ==============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 如果有建立虚拟环境，务必屏蔽，避免上传大量依赖包库
+venv/
+env/
+.venv/
+ENV/
+
+# ==============
+# 4. 操作系统与IDE配置 (Environment)
+# ==============
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
