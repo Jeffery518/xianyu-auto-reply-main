@@ -2204,6 +2204,7 @@ class XianyuLive:
 
                         # 添加风控日志记录
                         log_id = None
+                        log_status_updated = False
                         try:
                             from db_manager import db_manager
                             success = db_manager.add_risk_control_log(
@@ -2231,7 +2232,7 @@ class XianyuLive:
                                 logger.info(f"【{self.cookie_id}】滑块验证成功，准备重启实例...")
 
                                 # 更新风控日志为成功状态
-                                if 'log_id' in locals() and log_id:
+                                if log_id:
                                     try:
                                         from db_manager import db_manager
                                         db_manager.update_risk_control_log(
@@ -2239,6 +2240,7 @@ class XianyuLive:
                                             processing_result=f"滑块验证成功，耗时: {captcha_duration:.2f}秒, cookies长度: {len(new_cookies_str)}",
                                             processing_status='success'
                                         )
+                                        log_status_updated = True
                                     except Exception as update_e:
                                         logger.error(f"【{self.cookie_id}】更新风控日志失败: {update_e}")
 
@@ -2251,7 +2253,7 @@ class XianyuLive:
                                 logger.error(f"【{self.cookie_id}】滑块验证失败")
 
                                 # 更新风控日志为失败状态
-                                if 'log_id' in locals() and log_id:
+                                if log_id:
                                     try:
                                         from db_manager import db_manager
                                         db_manager.update_risk_control_log(
@@ -2259,6 +2261,7 @@ class XianyuLive:
                                             processing_result=f"滑块验证失败，耗时: {captcha_duration:.2f}秒, 原因: 未获取到新cookies",
                                             processing_status='failed'
                                         )
+                                        log_status_updated = True
                                     except Exception as update_e:
                                         logger.error(f"【{self.cookie_id}】更新风控日志失败: {update_e}")
                                 
@@ -2269,7 +2272,7 @@ class XianyuLive:
 
                             # 更新风控日志为异常状态
                             captcha_duration = time.time() - captcha_start_time if 'captcha_start_time' in locals() else 0
-                            if 'log_id' in locals() and log_id:
+                            if log_id:
                                 try:
                                     from db_manager import db_manager
                                     db_manager.update_risk_control_log(
@@ -2278,11 +2281,25 @@ class XianyuLive:
                                         processing_status='failed',
                                         error_message=str(captcha_e)
                                     )
+                                    log_status_updated = True
                                 except Exception as update_e:
                                     logger.error(f"【{self.cookie_id}】更新风控日志失败: {update_e}")
                             
                             # 标记已发送通知（通知已在_handle_captcha_verification中发送）
                             notification_sent = True
+                        finally:
+                            # 兜底：如果离开了滑块验证代码块但因为某些原因(比如协程被取消或者未捕获异常)导致状态没有更新，在这里强制设置为failed
+                            if log_id and not log_status_updated:
+                                try:
+                                    from db_manager import db_manager
+                                    logger.warning(f"【{self.cookie_id}】风控日志 {log_id} 状态遗留未处理，将被强制关闭")
+                                    db_manager.update_risk_control_log(
+                                        log_id=log_id,
+                                        processing_result="滑块验证流程意外中断",
+                                        processing_status='failed'
+                                    )
+                                except Exception:
+                                    pass
 
                     # 检查是否包含"令牌过期"或"Session过期"
                     if isinstance(res_json, dict):
@@ -2349,7 +2366,8 @@ class XianyuLive:
                     await self.send_token_refresh_notification(f"Token刷新异常: {str(e)}", "token_refresh_exception")
             else:
                 logger.info(f"【{self.cookie_id}】已发送滑块验证相关通知，跳过Token刷新异常通知")
-            return None
+
+        return None
 
     def _need_captcha_verification(self, res_json: dict) -> bool:
         """检查响应是否需要滑块验证"""
@@ -2855,10 +2873,10 @@ class XianyuLive:
                         show_browser=show_browser,
                         notification_callback=notification_callback_wrapper
                     ),
-                    timeout=180.0  # 限制最多3分钟 (考虑网络和滑块等各种情况), 强制超时退出
+                    timeout=500.0  # 限制最多500秒，以涵盖底层450秒验证宽限和前置预处理耗时
                 )
             except asyncio.TimeoutError:
-                logger.error(f"【{self.cookie_id}】密码登录刷新超时 (超过3分钟)，浏览器可能已死锁或卡死")
+                logger.error(f"【{self.cookie_id}】密码登录刷新超时 (超过500秒)，浏览器可能已死锁或卡死")
                 # 标记失败，后续会自动重启实例清理僵尸进程
                 return False
             except Exception as e:

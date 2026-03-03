@@ -3830,6 +3830,79 @@ class XianyuSliderStealth:
                    (False, None) - 如果检测到滑块验证，会先处理滑块，然后返回
         """
         try:
+            # 内部辅助方法：统一处理截图并返回包含截图路径的封装对象
+            def _create_verification_result(frame, verify_url=None, target_element=None):
+                screenshot_path = None
+                try:
+                    import time
+                    time.sleep(1)
+                    import glob
+                    import os
+                    from datetime import datetime
+                    screenshots_dir = "static/uploads/images"
+                    os.makedirs(screenshots_dir, exist_ok=True)
+                    # 先删除该账号的旧截图
+                    old_screenshots = glob.glob(os.path.join(screenshots_dir, f"face_verify_{self.pure_user_id}_*.jpg"))
+                    for old_file in old_screenshots:
+                        try:
+                            os.remove(old_file)
+                            logger.info(f"【{self.pure_user_id}】删除旧的验证截图: {old_file}")
+                        except Exception as e:
+                            logger.warning(f"【{self.pure_user_id}】删除旧截图失败: {e}")
+                    
+                    # 尝试截图
+                    screenshot_bytes = None
+                    try:
+                        if target_element:
+                            screenshot_bytes = target_element.screenshot()
+                            logger.info(f"【{self.pure_user_id}】已截取目标元素")
+                        else:
+                            # 尝试获取弹窗框、验证框而不是整个全屏
+                            dialog_box = frame.query_selector('.baxia-dialog-content') or \
+                                         frame.query_selector('#alibaba-login-box') or \
+                                         frame.query_selector('.login-box') or \
+                                         frame.query_selector('.baxia-dialog')
+                            
+                            if dialog_box and dialog_box.is_visible():
+                                screenshot_bytes = dialog_box.screenshot()
+                                logger.info(f"【{self.pure_user_id}】已截取验证弹窗区域")
+                            elif frame != page:
+                                # 如果是 iframe，尝试只截取当前的 frame
+                                frame_element = frame.frame_element()
+                                if frame_element:
+                                    screenshot_bytes = frame_element.screenshot()
+                                    logger.info(f"【{self.pure_user_id}】已截取特定 iframe 区域")
+                                
+                            if not screenshot_bytes:
+                                # 退回：截取整个可见窗口
+                                screenshot_bytes = page.screenshot(full_page=False)
+                                logger.info(f"【{self.pure_user_id}】无法定位特定验证框，已截取整个页面")
+                    except Exception as e:
+                        logger.warning(f"【{self.pure_user_id}】截图目标失败，尝试截取整个页面: {e}")
+                        screenshot_bytes = page.screenshot(full_page=False)
+                    
+                    if screenshot_bytes:
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        filename = f"face_verify_{self.pure_user_id}_{timestamp}.jpg"
+                        file_path = os.path.join(screenshots_dir, filename)
+                        with open(file_path, 'wb') as f:
+                            f.write(screenshot_bytes)
+                        screenshot_path = file_path.replace('\\', '/')
+                        logger.info(f"【{self.pure_user_id}】✅ 验证截图已保存: {screenshot_path}")
+                    else:
+                        logger.warning(f"【{self.pure_user_id}】⚠️ 截图失败，无法获取截图数据")
+                except Exception as e:
+                    logger.error(f"【{self.pure_user_id}】保存截图时出错: {e}")
+                    
+                class VerificationFrame:
+                    def __init__(self, original_frame, v_url, s_path):
+                        self._original_frame = original_frame
+                        self.verify_url = v_url
+                        self.screenshot_path = s_path
+                    def __getattr__(self, name):
+                        return getattr(self._original_frame, name)
+                
+                return True, VerificationFrame(frame, verify_url, screenshot_path)
             logger.info(f"【{self.pure_user_id}】检测二维码/人脸验证...")
             
             # 先检查是否是滑块验证，如果是滑块验证，立即处理并返回
@@ -3903,86 +3976,21 @@ class XianyuSliderStealth:
                     try:
                         iframe_id = iframe.get_attribute('id')
                         if iframe_id == 'alibaba-login-box':
-                            logger.info(f"【{self.pure_user_id}】✅ 检测到 alibaba-login-box iframe（人脸验证/短信验证）")
+                            logger.info(f"【{self.pure_user_id}】检查 alibaba-login-box iframe 是否包含独立的人脸验证链接...")
                             frame = iframe.content_frame()
                             if frame:
-                                logger.info(f"【{self.pure_user_id}】人脸验证/短信验证Frame URL: {frame.url if hasattr(frame, 'url') else '未知'}")
                                 
                                 # 尝试自动点击"其他验证方式"，然后找到"通过拍摄脸部"的验证按钮
                                 face_verify_url = self._get_face_verification_url(frame)
                                 if face_verify_url:
                                     logger.info(f"【{self.pure_user_id}】✅ 获取到人脸验证链接: {face_verify_url}")
                                     
-                                    # 截图并保存
-                                    screenshot_path = None
-                                    try:
-                                        # 等待页面加载完成
-                                        time.sleep(2)
-                                        
-                                        # 先删除该账号的旧截图
-                                        import glob
-                                        screenshots_dir = "static/uploads/images"
-                                        os.makedirs(screenshots_dir, exist_ok=True)
-                                        old_screenshots = glob.glob(os.path.join(screenshots_dir, f"face_verify_{self.pure_user_id}_*.jpg"))
-                                        for old_file in old_screenshots:
-                                            try:
-                                                os.remove(old_file)
-                                                logger.info(f"【{self.pure_user_id}】删除旧的验证截图: {old_file}")
-                                            except Exception as e:
-                                                logger.warning(f"【{self.pure_user_id}】删除旧截图失败: {e}")
-                                        
-                                        # 尝试截取iframe元素的截图
-                                        screenshot_bytes = None
-                                        try:
-                                            # 获取iframe元素并截图
-                                            iframe_element = page.query_selector('iframe#alibaba-login-box')
-                                            if iframe_element:
-                                                screenshot_bytes = iframe_element.screenshot()
-                                                logger.info(f"【{self.pure_user_id}】已截取iframe元素")
-                                            else:
-                                                # 如果找不到iframe，截取整个页面
-                                                screenshot_bytes = page.screenshot(full_page=False)
-                                                logger.info(f"【{self.pure_user_id}】已截取整个页面")
-                                        except Exception as e:
-                                            logger.warning(f"【{self.pure_user_id}】截取iframe失败，尝试截取整个页面: {e}")
-                                            screenshot_bytes = page.screenshot(full_page=False)
-                                        
-                                        if screenshot_bytes:
-                                            # 生成带时间戳的文件名并直接保存
-                                            from datetime import datetime
-                                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                                            filename = f"face_verify_{self.pure_user_id}_{timestamp}.jpg"
-                                            file_path = os.path.join(screenshots_dir, filename)
-                                            
-                                            try:
-                                                with open(file_path, 'wb') as f:
-                                                    f.write(screenshot_bytes)
-                                                # 返回相对路径
-                                                screenshot_path = file_path.replace('\\', '/')
-                                                logger.info(f"【{self.pure_user_id}】✅ 人脸验证截图已保存: {screenshot_path}")
-                                            except Exception as e:
-                                                logger.error(f"【{self.pure_user_id}】保存截图失败: {e}")
-                                                screenshot_path = None
-                                        else:
-                                            logger.warning(f"【{self.pure_user_id}】⚠️ 截图失败，无法获取截图数据")
-                                    except Exception as e:
-                                        logger.error(f"【{self.pure_user_id}】截图时出错: {e}")
-                                        import traceback
-                                        logger.debug(traceback.format_exc())
+                                    # 统一由 _create_verification_result 获取截图并封装
+                                    iframe_element = page.query_selector('iframe#alibaba-login-box')
+                                    return _create_verification_result(frame, face_verify_url, iframe_element)
+                                else:
+                                    logger.info(f"【{self.pure_user_id}】未从 alibaba-login-box 提取到专属验证链接，将交由后续内容匹配规则检查...")
                                     
-                                    # 创建一个特殊的frame对象，包含截图路径
-                                    class VerificationFrame:
-                                        def __init__(self, original_frame, verify_url, screenshot_path=None):
-                                            self._original_frame = original_frame
-                                            self.verify_url = verify_url
-                                            self.screenshot_path = screenshot_path
-                                        
-                                        def __getattr__(self, name):
-                                            return getattr(self._original_frame, name)
-                                    
-                                    return True, VerificationFrame(frame, face_verify_url, screenshot_path)
-                                
-                                return True, frame
                     except Exception as e:
                         logger.debug(f"【{self.pure_user_id}】检查iframe时出错: {e}")
                         continue
@@ -3993,37 +4001,6 @@ class XianyuSliderStealth:
                 try:
                     frame_url = frame.url
                     logger.debug(f"【{self.pure_user_id}】检查Frame {idx} 是否有二维码: {frame_url}")
-                    
-                    # 检查frame URL是否包含 mini_login（人脸验证或短信验证页面）
-                    if 'mini_login' in frame_url:
-                        # 进一步确认不是滑块验证
-                        is_slider = False
-                        for selector in slider_selectors:
-                            try:
-                                element = frame.query_selector(selector)
-                                if element and element.is_visible():
-                                    is_slider = True
-                                    break
-                            except:
-                                continue
-                        
-                        if not is_slider:
-                            logger.info(f"【{self.pure_user_id}】✅ 在Frame {idx} 检测到 mini_login 页面（人脸验证/短信验证）")
-                            logger.info(f"【{self.pure_user_id}】人脸验证/短信验证Frame URL: {frame_url}")
-                            return True, frame
-                    
-                    # 检查frame的父iframe是否是alibaba-login-box
-                    try:
-                        # 尝试通过frame的父元素查找
-                        frame_element = frame.frame_element()
-                        if frame_element:
-                            parent_iframe_id = frame_element.get_attribute('id')
-                            if parent_iframe_id == 'alibaba-login-box':
-                                logger.info(f"【{self.pure_user_id}】✅ 在Frame {idx} 检测到 alibaba-login-box（人脸验证/短信验证）")
-                                logger.info(f"【{self.pure_user_id}】人脸验证/短信验证Frame URL: {frame_url}")
-                                return True, frame
-                    except:
-                        pass
                     
                     # 先检查这个frame是否是滑块验证
                     is_slider_frame = False
@@ -4071,7 +4048,7 @@ class XianyuSliderStealth:
                                 if not has_slider_in_frame:
                                     logger.info(f"【{self.pure_user_id}】✅ 在Frame {idx} 检测到二维码验证: {selector}")
                                     logger.info(f"【{self.pure_user_id}】二维码Frame URL: {frame_url}")
-                                    return True, frame
+                                    return _create_verification_result(frame, frame_url, element)
                         except:
                             continue
                     
@@ -4094,7 +4071,7 @@ class XianyuSliderStealth:
                             if not has_slider_keyword:
                                 logger.info(f"【{self.pure_user_id}】✅ 在Frame {idx} 检测到人脸验证")
                                 logger.info(f"【{self.pure_user_id}】人脸验证Frame URL: {frame_url}")
-                                return True, frame
+                                return _create_verification_result(frame, frame_url)
                     except:
                         pass
                         
@@ -4220,8 +4197,8 @@ class XianyuSliderStealth:
                 
                 return face_verify_url
             else:
-                logger.warning(f"【{self.pure_user_id}】未找到人脸验证链接，返回原始frame URL")
-                return frame.url if hasattr(frame, 'url') else None
+                logger.info(f"【{self.pure_user_id}】未找到人脸验证链接")
+                return None
                 
         except Exception as e:
             logger.error(f"【{self.pure_user_id}】获取人脸验证链接时出错: {e}")
