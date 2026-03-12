@@ -1226,53 +1226,73 @@ class XianyuLive:
         try:
             order_id = None
             
-            # 方法1: 从button的targetUrl中提取orderId
-            if isinstance(message, dict) and "1" in message and isinstance(message["1"], dict):
-                message_1 = message["1"]
-                if "6" in message_1 and isinstance(message_1["6"], dict):
-                    message_6 = message_1["6"]
-                    if "3" in message_6 and isinstance(message_6["3"], dict):
-                        message_6_3 = message_6["3"]
-                        if "5" in message_6_3:
-                            try:
-                                content_str = message_6_3["5"]
-                                content_data = json.loads(content_str)
-                                # 从button的targetUrl中提取orderId
-                                target_url = content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', '')
-                                if target_url and 'orderId=' in target_url:
-                                    order_match = re.search(r'orderId=(\d+)', target_url)
-                                    if order_match:
-                                        order_id = order_match.group(1)
-                                        logger.info(f'【{self.cookie_id}】从button targetUrl提取到订单ID: {order_id}')
-                            except (json.JSONDecodeError, KeyError) as e:
-                                logger.warning(f"【{self.cookie_id}】解析评价消息JSON失败: {e}")
-            
-            # 方法2: 从extJson中提取orderId
+            # 方法1: 从消息详情内容(dxCard)中提取
+            try:
+                # 准备可能包含 JSON 内容的字段列表
+                content_sources = []
+                if isinstance(message.get("1"), dict):
+                    m1 = message["1"]
+                    if isinstance(m1.get("6"), dict) and isinstance(m1["6"].get("3"), dict):
+                        if "5" in m1["6"]["3"]:
+                            content_sources.append(m1["6"]["3"]["5"])
+                
+                for content_str in content_sources:
+                    if not content_str: continue
+                    content_data = json.loads(content_str)
+                    
+                    # 检查所有可能的 URL 字段
+                    urls = []
+                    # 路径1: button targetUrl
+                    urls.append(content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', ''))
+                    # 路径2: main targetUrl
+                    urls.append(content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('targetUrl', ''))
+                    # 路径3: dynamicOperation button targetUrl
+                    urls.append(content_data.get('dynamicOperation', {}).get('changeContent', {}).get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', ''))
+                    
+                    for url in urls:
+                        if url:
+                            # 匹配 tradeId, orderId, id 等参数
+                            match = re.search(r'(?:tradeId|orderId|id)=(\d{15,})', url)
+                            if match:
+                                order_id = match.group(1)
+                                logger.info(f'【{self.cookie_id}】从 URL 提取到订单ID: {order_id}')
+                                break
+                    if order_id: break
+            except Exception as e:
+                logger.debug(f"从 dxCard 提取订单ID失败: {e}")
+
+            # 方法2: 从 extJson -> updateKey 中提取
             if not order_id:
-                if isinstance(message, dict) and "1" in message and isinstance(message["1"], dict):
-                    message_1 = message["1"]
-                    if "10" in message_1 and isinstance(message_1["10"], dict):
-                        ext_json_str = message_1["10"].get("extJson", "")
-                        if ext_json_str:
-                            try:
-                                ext_json = json.loads(ext_json_str)
-                                # 从updateKey中提取orderId
-                                update_key = ext_json.get("updateKey", "")
-                                if update_key:
-                                    # updateKey格式: "3114528891587728869:20:BUYER_CONFIRM_RATE_SELLER:74"
-                                    parts = update_key.split(":")
-                                    if len(parts) > 0 and parts[0].isdigit():
-                                        order_id = parts[0]
-                                        logger.info(f'【{self.cookie_id}】从updateKey提取到订单ID: {order_id}')
-                            except (json.JSONDecodeError, KeyError) as e:
-                                logger.warning(f"【{self.cookie_id}】解析extJson失败: {e}")
-            
-            # 方法3: 正则搜索整个消息
+                try:
+                    ext_json_str = ""
+                    if isinstance(message.get("1"), dict):
+                        ext_json_str = message["1"].get("10", {}).get("extJson", "")
+                    elif isinstance(message.get("4"), dict):
+                        ext_json_str = message["4"].get("extJson", "")
+                    
+                    if ext_json_str:
+                        ext_json = json.loads(ext_json_str)
+                        update_key = ext_json.get("updateKey", "")
+                        if update_key:
+                            # updateKey 常见格式: 
+                            # 1. "orderId:type:..."
+                            # 2. "sid:orderId:type:..."
+                            parts = update_key.split(":")
+                            for p in parts:
+                                # 寻找符合订单ID特征的长数字（15-20位）
+                                if p.isdigit() and 15 <= len(p) <= 22:
+                                    order_id = p
+                                    logger.info(f'【{self.cookie_id}】从 updateKey 提取到订单ID: {order_id}')
+                                    break
+                except Exception as e:
+                    logger.debug(f"从 updateKey 提取订单ID失败: {e}")
+
+            # 方法3: 正则搜索整个消息字符串
             if not order_id:
                 message_str = str(message)
                 patterns = [
-                    r'orderId[=:](\d{10,})',
-                    r'"updateKey"\s*:\s*"(\d{10,})',
+                    r'(?:orderId|tradeId|trade_id|id)[=:]"?(\d{15,})"?',
+                    r'":\s*"(\d{19})"', # 匹配 19 位数字字符串
                 ]
                 for pattern in patterns:
                     match = re.search(pattern, message_str)
@@ -7793,16 +7813,22 @@ class XianyuLive:
                 pass
 
     def is_chat_message(self, message):
-        """判断是否为用户聊天消息"""
+        """判断是否为聊天消息（包括系统卡片消息）"""
         try:
-            return (
-                isinstance(message, dict)
-                and "1" in message
-                and isinstance(message["1"], dict)
-                and "10" in message["1"]
-                and isinstance(message["1"]["10"], dict)
-                and "reminderContent" in message["1"]["10"]
-            )
+            if not isinstance(message, dict):
+                return False
+            
+            # 结构1: 标准聊天消息或卡片消息 (message['1']['10'])
+            if ("1" in message and isinstance(message["1"], dict) and 
+                "10" in message["1"] and isinstance(message["1"]["10"], dict)):
+                return True
+                
+            # 结构2: 简化系统的卡片消息结构 (message['4']['reminderContent'])
+            if ("4" in message and isinstance(message["4"], dict) and 
+                ("reminderContent" in message["4"] or "reminderTitle" in message["4"])):
+                return True
+                
+            return False
         except Exception:
             return False
 
@@ -8572,31 +8598,38 @@ class XianyuLive:
                 logger.warning(f"【{self.cookie_id}】[{msg_id}] ⏹️ 非聊天消息，处理结束")
                 return
 
-            # 处理聊天消息
+            # 处理聊天及系统消息信息提取
             try:
-                # 安全地提取聊天消息信息
-                if not (isinstance(message, dict) and "1" in message and isinstance(message["1"], dict)):
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 消息格式错误：缺少必要的字段结构")
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ⏹️ 处理结束（格式错误）")
+                message_1 = message.get("1")
+                message_4 = message.get("4")
+                
+                # 兼容不同结构的属性提取
+                if isinstance(message_1, dict) and isinstance(message_1.get("10"), dict):
+                    # 结构1 (标准)
+                    message_details = message_1["10"]
+                    create_time = int(message_1.get("5", 0))
+                    chat_id_raw = message_1.get("2", "")
+                elif isinstance(message_4, dict):
+                    # 结构2 (简化系统卡片)
+                    message_details = message_4
+                    create_time = int(message.get("5", 0))
+                    chat_id_raw = message.get("2", "")
+                else:
+                    logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 无法识别的消息结构，停止处理")
                     return
 
-                message_1 = message["1"]
-                if not isinstance(message_1.get("10"), dict):
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 消息格式错误：缺少消息详情字段")
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ⏹️ 处理结束（缺少详情字段）")
-                    return
+                send_user_name = message_details.get("senderNick", message_details.get("reminderTitle", "未知用户"))
+                send_user_id = message_details.get("senderUserId", "unknown")
+                send_message = message_details.get("reminderContent", "").strip()
+                
+                if not send_message:
+                    # 如果内容为空，尝试使用标题或通知语作为 send_message
+                    send_message = message_details.get("reminderTitle", message_details.get("reminderNotice", ""))
 
-                create_time = int(message_1.get("5", 0))
-                message_10 = message_1["10"]
-                send_user_name = message_10.get("senderNick", message_10.get("reminderTitle", "未知用户"))
-                send_user_id = message_10.get("senderUserId", "unknown")
-                send_message = message_10.get("reminderContent", "")
-
-                chat_id_raw = message_1.get("2", "")
                 chat_id = chat_id_raw.split('@')[0] if '@' in str(chat_id_raw) else str(chat_id_raw)
 
             except Exception as e:
-                logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 提取聊天消息信息失败: {self._safe_str(e)}")
+                logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 提取消息信息失败: {self._safe_str(e)}")
                 logger.error(f"【{self.cookie_id}】[{msg_id}] ⏹️ 处理结束（提取信息失败）")
                 return
 
@@ -8808,6 +8841,11 @@ class XianyuLive:
             elif send_message in [
                 '快给ta一个评价吧~',
                 '快给ta一个评价吧～',
+                '给ta一个评价吧~',
+                '给ta一个评价吧～',
+                '[我完成了评价]',
+                '我完成了评价',
+                '期待你的评价'
             ]:
                 # 检测到评价提醒消息，尝试自动好评
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] 🌟 检测到评价提醒消息: {send_message}')
