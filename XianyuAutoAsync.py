@@ -5122,8 +5122,8 @@ class XianyuLive:
         except Exception as e:
             logger.error(f"发送自动发货通知异常: {self._safe_str(e)}")
 
-    async def auto_confirm(self, order_id, item_id=None, retry_count=0):
-        """自动确认发货 - 使用加密模块，不包含延时处理（延时已在_auto_delivery中处理）"""
+    async def auto_confirm(self, order_id, item_id=None, retry_count=0, is_internal_retry=False):
+        """自动确认发货 - 使用加密模块，支持自动Session刷新重试"""
         try:
             logger.warning(f"【{self.cookie_id}】开始确认发货，订单ID: {order_id}")
 
@@ -5152,14 +5152,26 @@ class XianyuLive:
                 self.last_token_refresh_time = secure_confirm.last_token_refresh_time
                 logger.warning(f"【{self.cookie_id}】已同步确认发货模块更新的token")
 
+            # --- 自动Session修复逻辑 ---
+            if result.get('session_expired') and not is_internal_retry:
+                logger.warning(f"【{self.cookie_id}】检测到Session过期，尝试自动刷新Token并重试...")
+                # 触发Token刷新流程
+                new_token = await self.refresh_token()
+                if new_token:
+                    logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行确认发货重试...")
+                    # 递归调用自身进行重试，标记已重试过，避免死循环
+                    return await self.auto_confirm(order_id, item_id, retry_count=0, is_internal_retry=True)
+                else:
+                    logger.error(f"【{self.cookie_id}】Token刷新未返回新令牌（可能已触发重启或失败），无法继续自动重试")
+
             return result
 
         except Exception as e:
             logger.error(f"【{self.cookie_id}】加密确认模块调用失败: {self._safe_str(e)}")
             return {"error": f"加密确认模块调用失败: {self._safe_str(e)}", "order_id": order_id}
 
-    async def auto_freeshipping(self, order_id, item_id, buyer_id, retry_count=0):
-        """自动免拼发货 - 使用解密模块"""
+    async def auto_freeshipping(self, order_id, item_id, buyer_id, retry_count=0, is_internal_retry=False):
+        """自动免拼发货 - 支持自动Session刷新重试"""
         try:
             logger.warning(f"【{self.cookie_id}】开始免拼发货，订单ID: {order_id}")
 
@@ -5175,7 +5187,21 @@ class XianyuLive:
             secure_freeshipping.token_refresh_interval = self.token_refresh_interval
 
             # 调用免拼发货方法
-            return await secure_freeshipping.auto_freeshipping(order_id, item_id, buyer_id, retry_count)
+            result = await secure_freeshipping.auto_freeshipping(order_id, item_id, buyer_id, retry_count)
+            
+            # --- 自动Session修复逻辑 ---
+            if result.get('session_expired') and not is_internal_retry:
+                logger.warning(f"【{self.cookie_id}】检测到免拼发货Session过期，尝试自动刷新Token并重试...")
+                new_token = await self.refresh_token()
+                if new_token:
+                    logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行免拼发货重试...")
+                    return await self.auto_freeshipping(order_id, item_id, buyer_id, retry_count=0, is_internal_retry=True)
+
+            if result and result.get('success'):
+                # 记录订单已成功发货，避免后续重复尝试
+                self.confirmed_orders[order_id] = time.time()
+                logger.info(f"【{self.cookie_id}】已记录免拼发货成功状态: {order_id}")
+            return result
 
         except Exception as e:
             logger.error(f"【{self.cookie_id}】免拼发货模块调用失败: {self._safe_str(e)}")
@@ -5485,8 +5511,11 @@ class XianyuLive:
                             self.confirmed_orders[order_id] = current_time
                             logger.info(f"🎉 自动确认发货成功！订单ID: {order_id}")
                         else:
-                            logger.warning(f"⚠️ 自动确认发货失败: {confirm_result.get('error', '未知错误')}")
-                            # 即使确认发货失败，也继续发送发货内容
+                            error_msg = confirm_result.get('error', '未知错误')
+                            logger.error(f"❌ 自动确认发货失败: {error_msg}")
+                            # 如果确认发货失败（特别是Session过期），停止发送发货内容，避免造成已发货但平台未记录的问题
+                            logger.error(f"【{self.cookie_id}】订单 {order_id} 平台确认发货失败，为了安全起见，停止发送发货内容 (错误: {error_msg})")
+                            return None
 
             # 检查是否存在订单ID，只有存在订单ID才处理发货内容
             if order_id:
@@ -8778,7 +8807,9 @@ class XianyuLive:
                 # 🔔 立即发送消息通知（独立于自动回复功能）
                 # 检查是否为群组消息，如果是群组消息则跳过通知
                 try:
-                    session_type = message_10.get("sessionType", "1")  # 默认为个人消息类型
+                    msg_1 = message.get("1", {}) if isinstance(message, dict) else {}
+                    msg_10 = msg_1.get("10", {}) if isinstance(msg_1, dict) else {}
+                    session_type = msg_10.get("sessionType", "1") if isinstance(msg_10, dict) else "1"
                     if session_type == "30":
                         logger.info(f"📱 检测到群组消息（sessionType=30），跳过消息通知")
                     else:
@@ -8942,10 +8973,25 @@ class XianyuLive:
                         result = await self.auto_freeshipping(order_id, item_id, send_user_id)
                         if result.get('success'):
                             logger.info(f'[{msg_time}] 【{self.cookie_id}】✅ 自动免拼发货成功')
+                            # 免拼发货成功后，依然需要调用 _handle_auto_delivery 来发送发货内容
+                            # 由于 auto_freeshipping 内部已将 order_id 存入 self.confirmed_orders，
+                            # 后续流程会自动跳过重复确认动作，仅执行内容提取与发送
+                            await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
+                                                           item_id, chat_id, msg_time, message_data)
                         else:
-                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 自动免拼发货失败: {result.get("error", "未知错误")}')
-                        await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
-                                                       item_id, chat_id, msg_time, message_data)
+                            error_msg = result.get('error', '未知错误')
+                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 自动免拼发货失败: {error_msg}')
+                            
+                            # 如果是Session过期导致的失败，不要尝试后续的普通发货，直接中止
+                            # 这样可以防止在未成功确认发货的情况下把虚拟商品内容发给买家
+                            if result.get('session_expired') or "SESSION_EXPIRED" in error_msg or "Session过期" in error_msg:
+                                logger.error(f"【{self.cookie_id}】由于Session过期，中止后续发货流程，请在重新登录后再处理")
+                                return
+                                
+                            # 对于其他非致命错误，尝试使用普通发货流程作为兜底
+                            logger.info(f'[{msg_time}] 【{self.cookie_id}】尝试普通发货流程兜底...')
+                            await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
+                                                           item_id, chat_id, msg_time, message_data)
                         return
                     else:
                         logger.info(f'[{msg_time}] 【{self.cookie_id}】收到卡片消息，标题: {card_title or "未知"}')
@@ -9378,7 +9424,7 @@ class XianyuLive:
             self._unregister_instance()
             logger.info(f"【{self.cookie_id}】XianyuLive主程序已完全退出")
 
-    async def get_item_list_info(self, page_number=1, page_size=20, retry_count=0):
+    async def get_item_list_info(self, page_number=1, page_size=20, retry_count=0, is_internal_retry=False):
         """获取商品信息，自动处理token失效的情况
 
         Args:
@@ -9531,12 +9577,17 @@ class XianyuLive:
                         "raw_data": items_data  # 保留原始数据以备调试
                     }
                 else:
-                    # 检查是否是token失效
                     error_msg = res_json.get('ret', [''])[0] if res_json.get('ret') else ''
-                    if 'FAIL_SYS_TOKEN_EXOIRED' in error_msg or 'token' in error_msg.lower():
+                    if 'FAIL_SYS_TOKEN_EXOIRED' in error_msg or 'token' in error_msg.lower() or 'Session过期' in error_msg or 'FAIL_SYS_SESSION_EXPIRED' in error_msg:
+                        if not is_internal_retry:
+                            logger.warning(f"【{self.cookie_id}】检测到Session过期，尝试自动刷新重试: {error_msg}")
+                            new_token = await self.refresh_token()
+                            if new_token:
+                                return await self.get_item_list_info(page_number, page_size, retry_count=0, is_internal_retry=True)
+                        
                         logger.warning(f"Token失效，准备重试: {error_msg}")
                         await asyncio.sleep(0.5)
-                        return await self.get_item_list_info(page_number, page_size, retry_count + 1)
+                        return await self.get_item_list_info(page_number, page_size, retry_count + 1, is_internal_retry=is_internal_retry)
                     else:
                         logger.error(f"获取商品信息失败: {res_json}")
                         return {"error": f"获取商品信息失败: {error_msg}"}
@@ -9544,7 +9595,7 @@ class XianyuLive:
         except Exception as e:
             logger.error(f"商品信息API请求异常: {self._safe_str(e)}")
             await asyncio.sleep(0.5)
-            return await self.get_item_list_info(page_number, page_size, retry_count + 1)
+            return await self.get_item_list_info(page_number, page_size, retry_count + 1, is_internal_retry=is_internal_retry)
 
     async def get_all_items(self, page_size=20, max_pages=None):
         """获取所有商品信息（自动分页）
@@ -9604,8 +9655,8 @@ class XianyuLive:
             "items": all_items
         }
 
-    async def send_image_msg(self, ws, cid, toid, image_url, width=800, height=600, card_id=None):
-        """发送图片消息"""
+    async def send_image_msg(self, ws, cid, toid, image_url, width=800, height=600, card_id=None, is_internal_retry=False):
+        """发送图片消息 - 支持自动Session刷新重试"""
         try:
             # 检查图片URL是否需要上传到CDN
             original_url = image_url
@@ -9644,6 +9695,12 @@ class XianyuLive:
                                 logger.warning(f"【{self.cookie_id}】获取图片尺寸失败，使用默认尺寸: {e}")
                         else:
                             logger.error(f"【{self.cookie_id}】图片上传失败: {local_image_path}")
+                            if not is_internal_retry:
+                                logger.warning(f"【{self.cookie_id}】检测到上传失败，尝试刷新Token重试...")
+                                new_token = await self.refresh_token()
+                                if new_token:
+                                    return await self.send_image_msg(ws, cid, toid, original_url, width, height, card_id, is_internal_retry=True)
+                            
                             logger.error(f"【{self.cookie_id}】❌ Cookie可能已失效！请检查配置并更新Cookie")
                             raise Exception(f"图片上传失败（Cookie可能已失效）: {local_image_path}")
                 else:

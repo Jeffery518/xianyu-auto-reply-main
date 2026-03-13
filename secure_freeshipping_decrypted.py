@@ -115,6 +115,12 @@ class SecureFreeshipping:
                     error_msg = res_json.get('ret', ['未知错误'])[0] if res_json.get('ret') else '未知错误'
                     logger.warning(f"【{self.cookie_id}】❌ 自动免拼发货失败: {error_msg}")
                     
+                    # 检查是否为Session过期，避免无效重试
+                    error_str = str(error_msg).upper()
+                    if "SESSION_EXPIRED" in error_str or "SESSION过期" in error_str or "过期" in error_str:
+                        logger.error(f"【{self.cookie_id}】检测到Session过期，停止自动免拼发货")
+                        return {"success": False, "error": error_msg, "session_expired": True}
+                    
                     return await self.auto_freeshipping(order_id, item_id, buyer_id, retry_count + 1)
                     
 
