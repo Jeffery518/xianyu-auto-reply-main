@@ -2049,7 +2049,7 @@ class XianyuLive:
 
 
 
-    async def refresh_token(self, captcha_retry_count: int = 0):
+    async def refresh_token(self, captcha_retry_count: int = 0, force: bool = False):
         """刷新token
 
         Args:
@@ -2076,9 +2076,10 @@ class XianyuLive:
                 return None
 
             # 【消息接收检查】检查是否在消息接收后的冷却时间内，与 cookie_refresh_loop 保持一致
+            # 如果 force 为 True，则跳过冷却检查（用于致命错误后的自动修复）
             current_time = time.time()
             time_since_last_message = current_time - self.last_message_received_time
-            if self.last_message_received_time > 0 and time_since_last_message < self.message_cookie_refresh_cooldown:
+            if not force and self.last_message_received_time > 0 and time_since_last_message < self.message_cookie_refresh_cooldown:
                 remaining_time = self.message_cookie_refresh_cooldown - time_since_last_message
                 remaining_minutes = int(remaining_time // 60)
                 remaining_seconds = int(remaining_time % 60)
@@ -2478,13 +2479,21 @@ class XianyuLive:
                 import concurrent.futures
 
                 loop = asyncio.get_event_loop()
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    # 执行滑块验证
-                    success, cookies = await loop.run_in_executor(
-                        executor,
-                        slider_stealth.run,
-                        verification_url
+                # 在线程池中执行滑块验证，增加超时保护
+                try:
+                    success, cookies = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            slider_stealth.run,
+                            verification_url
+                        ),
+                        timeout=300.0  # 给滑块验证5分钟宽限
                     )
+                except asyncio.TimeoutError:
+                    logger.error(f"【{self.cookie_id}】滑块验证执行超时 (300秒)")
+                    success, cookies = False, None
+                except Exception as e:
+                    logger.error(f"【{self.cookie_id}】滑块验证执行异常: {self._safe_str(e)}")
+                    success, cookies = False, None
 
                 if success and cookies:
                     logger.info(f"【{self.cookie_id}】滑块验证成功，获取到新的cookies")
@@ -3372,6 +3381,11 @@ class XianyuLive:
         except asyncio.CancelledError:
             # 如果被取消，确保锁能正确释放
             raise
+        except Exception as e:
+            logger.error(f"清理商品详情缓存异常: {e}")
+            import traceback
+            logger.error(f"清理商品详情缓存异常详情:\n{traceback.format_exc()}")
+            return 0
 
     async def _fetch_item_detail_from_browser(self, item_id: str) -> str:
         """使用浏览器获取商品详情"""
@@ -3507,11 +3521,15 @@ class XianyuLive:
 
             except Exception as e:
                 logger.warning(f"获取商品详情元素失败: {item_id}, 错误: {self._safe_str(e)}")
+                import traceback
+                logger.warning(f"获取商品详情元素失败详情:\n{traceback.format_exc()}")
 
             return ""
 
         except Exception as e:
             logger.error(f"浏览器获取商品详情异常: {item_id}, 错误: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"浏览器获取商品详情异常详情:\n{traceback.format_exc()}")
             return ""
         finally:
             # 确保资源被正确清理
@@ -3521,6 +3539,8 @@ class XianyuLive:
                     logger.warning(f"Browser已关闭: {item_id}")
             except Exception as e:
                 logger.warning(f"关闭browser时出错: {self._safe_str(e)}")
+                import traceback
+                logger.warning(f"关闭browser时出错详情:\n{traceback.format_exc()}")
             
             try:
                 if playwright:
@@ -3528,6 +3548,8 @@ class XianyuLive:
                     logger.warning(f"Playwright已停止: {item_id}")
             except Exception as e:
                 logger.warning(f"停止playwright时出错: {self._safe_str(e)}")
+                import traceback
+                logger.warning(f"停止playwright时出错详情:\n{traceback.format_exc()}")
 
 
     async def save_items_list_to_db(self, items_list):
@@ -3627,6 +3649,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"批量保存商品信息异常: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"批量保存商品信息异常详情:\n{traceback.format_exc()}")
             return 0
 
     async def _fetch_missing_item_details(self, items_need_detail):
@@ -3678,6 +3702,8 @@ class XianyuLive:
 
                     except Exception as e:
                         logger.error(f"获取单个商品详情异常: {item_info.get('item_id', 'unknown')}, 错误: {self._safe_str(e)}")
+                        import traceback
+                        logger.error(f"获取单个商品详情异常详情:\n{traceback.format_exc()}")
                         return 0
 
             # 并发获取所有商品详情
@@ -3690,11 +3716,15 @@ class XianyuLive:
                     success_count += result
                 elif isinstance(result, Exception):
                     logger.error(f"获取商品详情任务异常: {result}")
+                    import traceback
+                    logger.error(f"获取商品详情任务异常详情:\n{traceback.format_exc()}")
 
             return success_count
 
         except Exception as e:
             logger.error(f"批量获取商品详情异常: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"批量获取商品详情异常详情:\n{traceback.format_exc()}")
             return success_count
 
     async def get_item_info(self, item_id, retry_count=0):
@@ -3783,6 +3813,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"商品信息API请求异常: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"商品信息API请求异常详情:\n{traceback.format_exc()}")
             await asyncio.sleep(0.5)
             return await self.get_item_info(item_id, retry_count + 1)
 
@@ -3871,6 +3903,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"提取商品ID失败: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"提取商品ID失败详情:\n{traceback.format_exc()}")
             return None
 
     def debug_message_structure(self, message, context=""):
@@ -3893,6 +3927,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"调试消息结构时发生错误: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"调试消息结构时发生错误详情:\n{traceback.format_exc()}")
 
     async def get_default_reply(self, send_user_name: str, send_user_id: str, send_message: str, chat_id: str, item_id: str = None) -> str:
         """获取默认回复内容，支持指定商品回复、变量替换和只回复一次功能"""
@@ -3918,6 +3954,8 @@ class XianyuLive:
                         return formatted_reply
                     except Exception as format_error:
                         logger.error(f"指定商品回复变量替换失败: {self._safe_str(format_error)}")
+                        import traceback
+                        logger.error(f"指定商品回复变量替换失败详情:\n{traceback.format_exc()}")
                         # 如果变量替换失败，返回原始内容
                         return reply_content
                 else:
@@ -3965,11 +4003,15 @@ class XianyuLive:
                 return formatted_reply
             except Exception as format_error:
                 logger.error(f"默认回复变量替换失败: {self._safe_str(format_error)}")
+                import traceback
+                logger.error(f"默认回复变量替换失败详情:\n{traceback.format_exc()}")
                 # 如果变量替换失败，返回原始内容
                 return reply_content
 
         except Exception as e:
             logger.error(f"获取默认回复失败: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"获取默认回复失败详情:\n{traceback.format_exc()}")
             return None
 
     async def get_keyword_reply(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None) -> str:
@@ -4017,6 +4059,8 @@ class XianyuLive:
                                 return formatted_reply
                             except Exception as format_error:
                                 logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
+                                import traceback
+                                logger.error(f"关键词回复变量替换失败详情:\n{traceback.format_exc()}")
                                 # 如果变量替换失败，返回原始内容
                                 return reply
 
@@ -4446,7 +4490,9 @@ class XianyuLive:
                         logger.warning(f"钉钉通知发送失败: {response.status}")
 
         except Exception as e:
+            import traceback
             logger.error(f"发送钉钉通知异常: {self._safe_str(e)}")
+            logger.error(f"钉钉通知异常详情:\n{traceback.format_exc()}")
 
     async def _send_feishu_notification(self, config_data: dict, message: str):
         """发送飞书通知"""
@@ -5155,14 +5201,15 @@ class XianyuLive:
             # --- 自动Session修复逻辑 ---
             if result.get('session_expired') and not is_internal_retry:
                 logger.warning(f"【{self.cookie_id}】检测到Session过期，尝试自动刷新Token并重试...")
-                # 触发Token刷新流程
-                new_token = await self.refresh_token()
+                # 触发Token刷新流程，使用 force=True 跳过消息冷却检查
+                new_token = await self.refresh_token(force=True)
                 if new_token:
                     logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行确认发货重试...")
                     # 递归调用自身进行重试，标记已重试过，避免死循环
                     return await self.auto_confirm(order_id, item_id, retry_count=0, is_internal_retry=True)
                 else:
                     logger.error(f"【{self.cookie_id}】Token刷新未返回新令牌（可能已触发重启或失败），无法继续自动重试")
+                    await self.send_token_refresh_notification(f"自动确认发货由于Token刷新失败而中止: 订单 {order_id}", "auto_confirm_token_fail")
 
             return result
 
@@ -5192,7 +5239,8 @@ class XianyuLive:
             # --- 自动Session修复逻辑 ---
             if result.get('session_expired') and not is_internal_retry:
                 logger.warning(f"【{self.cookie_id}】检测到免拼发货Session过期，尝试自动刷新Token并重试...")
-                new_token = await self.refresh_token()
+                # 触发Token刷新流程，使用 force=True 跳过消息冷却检查
+                new_token = await self.refresh_token(force=True)
                 if new_token:
                     logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行免拼发货重试...")
                     return await self.auto_freeshipping(order_id, item_id, buyer_id, retry_count=0, is_internal_retry=True)
@@ -5201,10 +5249,17 @@ class XianyuLive:
                 # 记录订单已成功发货，避免后续重复尝试
                 self.confirmed_orders[order_id] = time.time()
                 logger.info(f"【{self.cookie_id}】已记录免拼发货成功状态: {order_id}")
+            else:
+                error_msg = result.get('error', '未知错误') if result else '未知错误'
+                logger.error(f"【{self.cookie_id}】自动免拼发货失败: {error_msg}")
+                await self.send_token_refresh_notification(f"自动免拼发货失败: {error_msg} (订单: {order_id})", "auto_freeshipping_fail")
+
             return result
 
         except Exception as e:
             logger.error(f"【{self.cookie_id}】免拼发货模块调用失败: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"【{self.cookie_id}】异常详情:\n{traceback.format_exc()}")
             return {"error": f"免拼发货模块调用失败: {self._safe_str(e)}", "order_id": order_id}
 
     async def fetch_order_detail_info(self, order_id: str, item_id: str = None, buyer_id: str = None, debug_headless: bool = None, sid: str = None):
@@ -5513,6 +5568,7 @@ class XianyuLive:
                         else:
                             error_msg = confirm_result.get('error', '未知错误')
                             logger.error(f"❌ 自动确认发货失败: {error_msg}")
+                            await self.send_token_refresh_notification(f"自动确认发货失败: {error_msg} (订单: {order_id})", "auto_confirm_fail")
                             # 如果确认发货失败（特别是Session过期），停止发送发货内容，避免造成已发货但平台未记录的问题
                             logger.error(f"【{self.cookie_id}】订单 {order_id} 平台确认发货失败，为了安全起见，停止发送发货内容 (错误: {error_msg})")
                             return None
@@ -8547,7 +8603,7 @@ class XianyuLive:
                     return
                 elif red_reminder == '等待卖家发货':
                     user_url = f'https://www.goofish.com/personal?userId={user_id}'
-                    logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] 【系统】交易成功 {user_url} 等待卖家发货')
+                    logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] 【系统】买家已付款 {user_url} 等待卖家发货')
                     
                     # 【关键修复】对于简化结构的消息（message['1']是字符串），根据sid查找订单信息后触发自动发货
                     # 简化消息结构: {'1': '56226853668@goofish', '2': 1, '3': {'redReminder': '等待卖家发货', ...}}
@@ -8876,7 +8932,11 @@ class XianyuLive:
                 '给ta一个评价吧～',
                 '[我完成了评价]',
                 '我完成了评价',
-                '期待你的评价'
+                '期待你的评价',
+                '[买家确认收货，交易成功]',
+                '[你已确认收货，交易成功]',
+                '买家确认收货，交易成功',
+                '订单已签收'
             ]:
                 # 检测到评价提醒消息，尝试自动好评
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] 🌟 检测到评价提醒消息: {send_message}')
@@ -8888,15 +8948,12 @@ class XianyuLive:
                 'AI正在帮你回复消息，不错过每笔订单',
                 '发来一条消息',
                 '发来一条新消息',
-                '[买家确认收货，交易成功]',
                 '卖家人不错？送Ta闲鱼小红花',
                 '你人真不错，送你闲鱼小红花',
-                '[你已确认收货，交易成功]',
                 '[你已发货]',
                 '已发货',
                 '[注意！小心假客服骗钱！]',
                 '「我将「退货退款」修改为「退款」」',
-                '订单已签收',
                 '有蚂蚁森林能量可领'
             ]:
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] ⏹️ 系统消息不处理: {send_message}')

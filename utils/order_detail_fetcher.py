@@ -236,7 +236,15 @@ class OrderDetailFetcher:
                     if amount_valid:
                         logger.info(f"📋 订单 {order_id} 已存在于数据库中且金额有效({amount})，直接返回缓存数据")
                         print(f"✅ 订单 {order_id} 使用缓存数据，跳过浏览器获取")
+                    elif existing_order.get('updated_at') and (time.time() - time.mktime(time.strptime(existing_order['updated_at'], "%Y-%m-%d %H:%M:%S")) < 3600):
+                        # 如果是最近一小时内更新的，即使金额为空也暂时不重新抓取，避免频繁启动浏览器
+                        logger.info(f"📋 订单 {order_id} 最近一小时内刚更新过(金额无效)，跳过浏览器重复获取")
+                        amount_valid = True # 标记为虚拟有效以跳过浏览器
+                    else:
+                        logger.info(f"📋 订单 {order_id} 存在于数据库中但金额无效({amount})且记录较旧，需要重新获取")
+                        print(f"⚠️ 订单 {order_id} 金额无效，重新获取详情...")
 
+                    if amount_valid:
                         # 构建返回格式，与浏览器获取的格式保持一致
                         result = {
                             'order_id': existing_order['order_id'],
@@ -256,10 +264,6 @@ class OrderDetailFetcher:
                             'from_cache': True  # 标记数据来源
                         }
                         return result
-                    else:
-                        logger.info(f"📋 订单 {order_id} 存在于数据库中但金额无效({amount})，需要重新获取")
-                        print(f"⚠️ 订单 {order_id} 金额无效，重新获取详情...")
-
                 # 只有在数据库中没有有效数据时才初始化浏览器
                 logger.info(f"🌐 订单 {order_id} 需要浏览器获取，开始初始化浏览器...")
                 print(f"🔍 订单 {order_id} 开始浏览器获取详情...")

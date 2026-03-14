@@ -125,7 +125,10 @@ class SecureFreeshipping:
                     
 
         except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
             logger.error(f"【{self.cookie_id}】自动免拼发货API请求异常: {self._safe_str(e)}")
+            logger.error(f"【{self.cookie_id}】异常详情:\n{error_detail}")
             await asyncio.sleep(0.5)
             
             # 网络异常也进行重试
@@ -133,4 +136,4 @@ class SecureFreeshipping:
                 logger.info(f"【{self.cookie_id}】网络异常，准备重试...")
                 return await self.auto_freeshipping(order_id, item_id, buyer_id, retry_count + 1)
             
-            return {"error": f"网络异常: {self._safe_str(e)}", "order_id": order_id}
+            return {"error": f"网络异常: {self._safe_str(e)}", "order_id": order_id, "traceback": error_detail}
