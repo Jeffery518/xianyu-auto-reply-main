@@ -3093,13 +3093,12 @@ class XianyuLive:
                 
                 import threading
                 
-                def trigger_restart():
-                    """在后台线程中触发重启，不阻塞当前任务"""
+                async def trigger_restart_async():
+                    """异步触发重启，不阻塞当前任务"""
                     try:
                         # 给当前任务足够时间完成清理和退出（避免竞态条件）
                         # 增加到2秒，确保任务有足够时间处理返回和清理
-                        import time
-                        time.sleep(2.0)
+                        await asyncio.sleep(2.0)
                         
                         # save_to_db=False 因为 update_config_cookies 已经保存过了
                         cookie_manager.update_cookie(self.cookie_id, self.cookies_str, save_to_db=False)
@@ -3109,9 +3108,8 @@ class XianyuLive:
                         import traceback
                         logger.error(f"【{self.cookie_id}】重启失败详情:\n{traceback.format_exc()}")
 
-                # 在后台线程中触发重启
-                restart_thread = threading.Thread(target=trigger_restart, daemon=True)
-                restart_thread.start()
+                # 在当前循环中调度异步重启任务
+                self._create_tracked_task(trigger_restart_async())
                 
                 logger.info(f"【{self.cookie_id}】实例重启已触发，当前任务即将退出...")
                 logger.warning(f"【{self.cookie_id}】注意：重启请求已发送，CookieManager将在2秒后取消当前任务并启动新实例")

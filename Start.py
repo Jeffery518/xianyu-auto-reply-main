@@ -427,6 +427,31 @@ import uvicorn
 from urllib.parse import urlparse
 from loguru import logger
 
+# 配置日志文件记录
+def _setup_file_logging():
+    """配置 loguru 将日志写入文件，以便 Web UI 能够读取"""
+    log_dir = Path("logs")
+    if not log_dir.exists():
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+    # 移除默认控制台输出（如果需要重新配置）
+    # logger.remove()
+
+    # 添加文件日志，按天轮转，保留10天
+    log_file_path = log_dir / "xianyu_{time:YYYY-MM-DD}.log"
+    logger.add(
+        str(log_file_path),
+        rotation="00:00",
+        retention="10 days",
+        level="INFO",
+        encoding="utf-8",
+        enqueue=True  # 异步写入
+    )
+    print(f"{_OK} 已启用文件日志记录: {log_file_path}")
+
+# 执行日志配置
+_setup_file_logging()
+
 # 修复Linux环境下的asyncio子进程问题
 if sys.platform.startswith('linux'):
     try:
@@ -582,16 +607,18 @@ async def main():
 
 
 if __name__ == '__main__':
-    # 避免使用被monkey patch的asyncio.run()
-    # 使用原生的事件循环管理方式
+    # 解决 asyncio.get_event_loop() 在 Python 3.10+ 中的问题
+    # 明确创建并设置事件循环
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # 如果事件循环已经在运行，创建任务
-            asyncio.create_task(main())
-        else:
-            # 正常启动事件循环
-            loop.run_until_complete(main())
-    except RuntimeError:
-        # 如果没有事件循环，创建一个新的
-        asyncio.run(main()) 
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"程序启动异常: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        loop.close()

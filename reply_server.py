@@ -5607,8 +5607,8 @@ def get_system_logs(admin_user: Dict[str, Any] = Depends(require_admin),
             logger.warning("未找到日志文件")
             return {"logs": [], "message": "未找到日志文件", "success": False}
 
-        # 获取最新的日志文件
-        latest_log_file = max(log_files, key=os.path.getctime)
+        # 获取最新的日志文件，按修改时间排序
+        latest_log_file = max(log_files, key=os.path.getmtime)
         logger.info(f"使用最新日志文件: {latest_log_file}")
 
         logs = []
