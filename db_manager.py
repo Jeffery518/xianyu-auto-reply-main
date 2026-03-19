@@ -16,6 +16,16 @@ from loguru import logger
 class DBManager:
     """SQLite数据库管理，持久化存储Cookie和关键字"""
     
+    # 允许操作的表名白名单，防止SQL注入
+    ALLOWED_TABLES = {
+        'users', 'email_verifications', 'captcha_codes', 'cookies', 'keywords',
+        'cookie_status', 'ai_reply_settings', 'ai_conversations', 'ai_item_cache',
+        'cards', 'orders', 'item_info', 'delivery_rules', 'default_replies',
+        'item_replay', 'default_reply_records', 'notification_channels',
+        'system_settings', 'message_notifications', 'user_settings',
+        'comment_templates', 'risk_control_logs', 'old_notification_channels'
+    }
+
     def __init__(self, db_path: str = None):
         """初始化数据库连接和表结构"""
         # 支持环境变量配置数据库路径
@@ -1078,14 +1088,18 @@ class DBManager:
 
     def _migrate_table_data(self, cursor, table_name: str):
         """迁移指定表的数据"""
+        if table_name not in self.ALLOWED_TABLES:
+            logger.error(f"访问非法的表: {table_name}")
+            return
+
         try:
             if table_name == 'old_notification_channels':
                 # 迁移通知渠道数据
-                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                self._execute_sql(cursor, f"SELECT COUNT(*) FROM {table_name}")
                 count = cursor.fetchone()[0]
 
                 if count > 0:
-                    cursor.execute(f"SELECT * FROM {table_name}")
+                    self._execute_sql(cursor, f"SELECT * FROM {table_name}")
                     old_data = cursor.fetchall()
 
                     for row in old_data:
@@ -1105,7 +1119,7 @@ class DBManager:
                     logger.info(f"成功迁移 {count} 条通知渠道数据")
 
                     # 迁移完成后删除老表
-                    cursor.execute(f"DROP TABLE {table_name}")
+                    self._execute_sql(cursor, f"DROP TABLE {table_name}")
                     logger.info(f"已删除遗留表: {table_name}")
 
         except Exception as e:
@@ -2645,7 +2659,7 @@ class DBManager:
                         placeholders = ','.join(['?' for _ in user_cookie_ids])
 
                         # 备份关键字
-                        cursor.execute(f"SELECT * FROM keywords WHERE cookie_id IN ({placeholders})", user_cookie_ids)
+                        self._execute_sql(cursor, f"SELECT * FROM keywords WHERE cookie_id IN ({placeholders})", tuple(user_cookie_ids))
                         columns = [description[0] for description in cursor.description]
                         rows = cursor.fetchall()
                         backup_data['data']['keywords'] = {
@@ -2658,7 +2672,10 @@ class DBManager:
                                         'item_info', 'ai_reply_settings', 'ai_conversations']
 
                         for table in related_tables:
-                            cursor.execute(f"SELECT * FROM {table} WHERE cookie_id IN ({placeholders})", user_cookie_ids)
+                            if table not in self.ALLOWED_TABLES:
+                                logger.warning(f"跳过不在白名单中的表: {table}")
+                                continue
+                            self._execute_sql(cursor, f"SELECT * FROM {table} WHERE cookie_id IN ({placeholders})", tuple(user_cookie_ids))
                             columns = [description[0] for description in cursor.description]
                             rows = cursor.fetchall()
                             backup_data['data'][table] = {
@@ -2675,7 +2692,10 @@ class DBManager:
                     ]
 
                     for table in tables:
-                        cursor.execute(f"SELECT * FROM {table}")
+                        if table not in self.ALLOWED_TABLES:
+                            logger.warning(f"跳过不在白名单中的表: {table}")
+                            continue
+                        self._execute_sql(cursor, f"SELECT * FROM {table}")
                         columns = [description[0] for description in cursor.description]
                         rows = cursor.fetchall()
 
@@ -2717,7 +2737,10 @@ class DBManager:
                                         'cookie_status', 'keywords', 'ai_conversations', 'ai_reply_settings']
 
                         for table in related_tables:
-                            cursor.execute(f"DELETE FROM {table} WHERE cookie_id IN ({placeholders})", user_cookie_ids)
+                            if table not in self.ALLOWED_TABLES:
+                                logger.warning(f"跳过不在白名单中的表: {table}")
+                                continue
+                            self._execute_sql(cursor, f"DELETE FROM {table} WHERE cookie_id IN ({placeholders})", tuple(user_cookie_ids))
 
                         # 删除用户的cookies
                         self._execute_sql(cursor, "DELETE FROM cookies WHERE user_id = ?", (user_id,))
@@ -2730,7 +2753,10 @@ class DBManager:
                     ]
 
                     for table in tables:
-                        cursor.execute(f"DELETE FROM {table}")
+                        if table not in self.ALLOWED_TABLES:
+                            logger.warning(f"跳过不在白名单中的表: {table}")
+                            continue
+                        self._execute_sql(cursor, f"DELETE FROM {table}")
 
                     # 清空系统设置（保留管理员密码）
                     self._execute_sql(cursor, "DELETE FROM system_settings WHERE key != 'admin_password_hash'")
@@ -2738,6 +2764,10 @@ class DBManager:
                 # 导入数据
                 data = backup_data['data']
                 for table_name, table_data in data.items():
+                    if table_name not in self.ALLOWED_TABLES:
+                        logger.warning(f"跳过不在白名单中的表: {table_name}")
+                        continue
+
                     if table_name not in ['cookies', 'keywords', 'cookie_status', 'cards',
                                         'delivery_rules', 'default_replies', 'notification_channels',
                                         'message_notifications', 'system_settings', 'item_info',
@@ -2745,6 +2775,10 @@ class DBManager:
                         continue
 
                     columns = table_data['columns']
+                    # 验证列名，防止SQL注入
+                    if not all(isinstance(col, str) and col.isidentifier() for col in columns):
+                        logger.error(f"表 {table_name} 包含非法的列名")
+                        continue
                     rows = table_data['rows']
 
                     if not rows:
@@ -2767,9 +2801,9 @@ class DBManager:
                         # 系统设置需要特殊处理，避免覆盖管理员密码
                         for row in rows:
                             if len(row) >= 1 and row[0] != 'admin_password_hash':
-                                cursor.execute(f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})", row)
+                                self._execute_sql(cursor, f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})", tuple(row))
                     else:
-                        cursor.executemany(f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})", rows)
+                        self._executemany_sql(cursor, f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})", rows)
 
                 # 提交事务
                 self.conn.commit()
@@ -4845,17 +4879,21 @@ class DBManager:
 
     def get_table_data(self, table_name: str):
         """获取指定表的所有数据"""
+        if table_name not in self.ALLOWED_TABLES:
+            logger.error(f"访问非法的表: {table_name}")
+            return [], []
+
         with self.lock:
             try:
                 cursor = self.conn.cursor()
 
                 # 获取表结构
-                cursor.execute(f"PRAGMA table_info({table_name})")
+                self._execute_sql(cursor, f"PRAGMA table_info({table_name})")
                 columns_info = cursor.fetchall()
                 columns = [col[1] for col in columns_info]  # 列名
 
                 # 获取表数据
-                cursor.execute(f"SELECT * FROM {table_name}")
+                self._execute_sql(cursor, f"SELECT * FROM {table_name}")
                 rows = cursor.fetchall()
 
                 # 转换为字典列表
@@ -5454,8 +5492,12 @@ class DBManager:
 
                 primary_key = primary_key_map.get(table_name, 'id')
 
+                if table_name not in self.ALLOWED_TABLES:
+                    logger.error(f"访问非法的表: {table_name}")
+                    return False
+
                 # 删除记录
-                cursor.execute(f"DELETE FROM {table_name} WHERE {primary_key} = ?", (record_id,))
+                self._execute_sql(cursor, f"DELETE FROM {table_name} WHERE {primary_key} = ?", (record_id,))
 
                 if cursor.rowcount > 0:
                     self.conn.commit()
@@ -5472,15 +5514,19 @@ class DBManager:
 
     def clear_table_data(self, table_name: str):
         """清空指定表的所有数据"""
+        if table_name not in self.ALLOWED_TABLES:
+            logger.error(f"访问非法的表: {table_name}")
+            return False
+
         with self.lock:
             try:
                 cursor = self.conn.cursor()
 
                 # 清空表数据
-                cursor.execute(f"DELETE FROM {table_name}")
+                self._execute_sql(cursor, f"DELETE FROM {table_name}")
 
                 # 重置自增ID（如果有的话）
-                cursor.execute(f"DELETE FROM sqlite_sequence WHERE name = ?", (table_name,))
+                self._execute_sql(cursor, f"DELETE FROM sqlite_sequence WHERE name = ?", (table_name,))
 
                 self.conn.commit()
                 logger.info(f"清空表数据成功: {table_name}")
