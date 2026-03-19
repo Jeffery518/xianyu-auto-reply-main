@@ -5368,7 +5368,7 @@ def get_all_ai_reply_settings(current_user: Dict[str, Any] = Depends(get_current
 
 
 @app.post("/ai-reply-test/{cookie_id}")
-def test_ai_reply(cookie_id: str, test_data: dict, current_user: Dict[str, Any] = Depends(get_current_user)):
+async def test_ai_reply(cookie_id: str, test_data: dict, current_user: Dict[str, Any] = Depends(get_current_user)):
     """测试AI回复功能"""
     try:
         # 检查账号是否存在
@@ -5391,7 +5391,7 @@ def test_ai_reply(cookie_id: str, test_data: dict, current_user: Dict[str, Any] 
         }
 
         # 生成测试回复
-        reply = ai_reply_engine.generate_reply(
+        reply = await ai_reply_engine.generate_reply(
             message=test_message,
             item_info=test_item_info,
             chat_id=f"test_{int(time.time())}",
