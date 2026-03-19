@@ -692,8 +692,8 @@ class XianyuSliderStealth:
         
         self.success_history_file = f"trajectory_history/{self.pure_user_id}_success.json"
         self.trajectory_params = {
-            "total_steps_range": [85, 120],  # 拟人：85-120步（真实鼠标轨迹点数）
-            "base_delay_range": [0.015, 0.025],  # 拟人：15-25ms延迟，总耗时1-2.5秒
+            "total_steps_range": [20, 35],  # 拟人：20-35步（减少VPS上Playwright IPC开销）
+            "base_delay_range": [0.02, 0.04],  # 拟人：20-40ms延迟，总耗时1-2.5秒
             "jitter_x_range": [-3, 12],  # 明显的垂直抖动
             "jitter_y_range": [-3, 10],  # 明显的水平抖动
             "slow_factor_range": [8, 15],  # 慢速阶段倍率
@@ -2424,24 +2424,10 @@ class XianyuSliderStealth:
                     current_y = start_y + y
                     
                     # 🔧 关键改进：直接移动到目标点，不使用 steps 插值
-                    # 如果位移过大（>30px），分多次小步移动以更自然
-                    dx = x - last_x
-                    dy = y - last_y
-                    move_distance = math.sqrt(dx*dx + dy*dy)
-                    
-                    if move_distance > 30:
-                        # 大位移时，分成多个小步
-                        sub_steps = max(2, int(move_distance / 15))
-                        for j in range(sub_steps):
-                            progress = (j + 1) / sub_steps
-                            sub_x = start_x + last_x + dx * progress
-                            sub_y = start_y + last_y + dy * progress
-                            self.page.mouse.move(sub_x, sub_y)
-                            # 小步之间只有极短延迟
-                            time.sleep(random.uniform(0.001, 0.003))
-                    else:
-                        # 小位移直接移动
-                        self.page.mouse.move(current_x, current_y)
+                    # 不再使用小步移动逻辑，以避免VPS环境IPC通信延迟累计爆炸
+                    move_start_time = time.time()
+                    self.page.mouse.move(current_x, current_y)
+                    move_duration = time.time() - move_start_time
                     
                     last_x, last_y = x, y
                     
@@ -2454,7 +2440,9 @@ class XianyuSliderStealth:
                         actual_delay += hesitation
                         slide_behavior[f'hesitation_at_{i}'] = hesitation
                     
-                    time.sleep(actual_delay)
+                    # VPS环境时间补偿：减去页面通信开销时间
+                    wait_time = max(0.001, actual_delay - move_duration)
+                    time.sleep(wait_time)
                     
                     # 记录最终位置
                     if i == len(trajectory) - 1:
