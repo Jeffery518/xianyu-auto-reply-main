@@ -168,7 +168,7 @@ class SecureConfirm:
                     # 检查是否为Session过期，避免无效重试
                     error_str = str(error_msg).upper()
                     if "SESSION_EXPIRED" in error_str or "SESSION过期" in error_str or "过期" in error_str:
-                        logger.error(f"【{self.cookie_id}】检测到Session过期，停止自动确认发货")
+                        logger.error(f"【{self.cookie_id}】检测到Session过期，标记session_expired以便上层触发刷新Token机制")
                         return {"success": False, "error": error_msg, "session_expired": True}
 
                     return await self.auto_confirm(order_id, item_id, retry_count + 1)
