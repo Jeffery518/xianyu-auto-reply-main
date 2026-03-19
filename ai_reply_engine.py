@@ -11,6 +11,7 @@ import json
 import time
 import requests
 import threading
+import asyncio
 from typing import List, Dict, Optional
 from loguru import logger
 from openai import OpenAI
@@ -24,7 +25,7 @@ class AIReplyEngine:
         self._init_default_prompts()
         # 用于控制同一chat_id消息的串行处理
         self._chat_locks = {}
-        self._chat_locks_lock = threading.Lock()
+        self._chat_locks_lock = asyncio.Lock()
     
     def _init_default_prompts(self):
         """初始化默认提示词（用于构建统一提示词）"""
@@ -258,43 +259,44 @@ class AIReplyEngine:
         settings = db_manager.get_ai_reply_settings(cookie_id)
         return settings['ai_enabled']
     
-    def _get_chat_lock(self, chat_id: str) -> threading.Lock:
+    async def _get_chat_lock(self, chat_id: str) -> asyncio.Lock:
         """获取指定chat_id的锁，如果不存在则创建"""
-        with self._chat_locks_lock:
+        async with self._chat_locks_lock:
             if chat_id not in self._chat_locks:
-                self._chat_locks[chat_id] = threading.Lock()
+                self._chat_locks[chat_id] = asyncio.Lock()
             return self._chat_locks[chat_id]
     
-    def generate_reply(self, message: str, item_info: dict, chat_id: str,
+    async def generate_reply(self, message: str, item_info: dict, chat_id: str,
                       cookie_id: str, user_id: str, item_id: str,
                       skip_wait: bool = False) -> Optional[str]:
         """
         生成AI回复 - 统一意图识别与回复生成
         AI会自动判断用户意图并生成合适的回复，避免关键词误判
         """
-        if not self.is_ai_enabled(cookie_id):
+        if not await asyncio.to_thread(self.is_ai_enabled, cookie_id):
             return None
         
         try:
             # 先保存用户消息到数据库（意图暂时设为None，后续可根据需要更新）
-            message_created_at = self.save_conversation(
-                chat_id, cookie_id, user_id, item_id, "user", message, intent=None
+            message_created_at = await asyncio.to_thread(
+                self.save_conversation,
+                chat_id, cookie_id, user_id, item_id, "user", message, None
             )
             
             # 消息去抖处理
             if not skip_wait:
                 logger.info(f"【{cookie_id}】消息已保存，等待10秒收集后续消息: {message[:20]}...")
-                time.sleep(10)
+                await asyncio.sleep(10)
             else:
                 logger.info(f"【{cookie_id}】消息已保存（外部防抖已启用）: {message[:20]}...")
             
             # 获取该chat_id的锁，确保同一对话的消息串行处理
-            chat_lock = self._get_chat_lock(chat_id)
+            chat_lock = await self._get_chat_lock(chat_id)
             
-            with chat_lock:
+            async with chat_lock:
                 # 检查是否有更新的消息
                 query_seconds = 6 if skip_wait else 25
-                recent_messages = self._get_recent_user_messages(chat_id, cookie_id, seconds=query_seconds)
+                recent_messages = await asyncio.to_thread(self._get_recent_user_messages, chat_id, cookie_id, query_seconds)
                 
                 if recent_messages and len(recent_messages) > 0:
                     latest_message = recent_messages[-1]
@@ -303,14 +305,14 @@ class AIReplyEngine:
                         return None
                 
                 # 1. 获取AI设置
-                settings = db_manager.get_ai_reply_settings(cookie_id)
+                settings = await asyncio.to_thread(db_manager.get_ai_reply_settings, cookie_id)
                 custom_prompts = json.loads(settings['custom_prompts']) if settings['custom_prompts'] else {}
 
                 # 2. 获取对话历史
-                context = self.get_conversation_context(chat_id, cookie_id)
+                context = await asyncio.to_thread(self.get_conversation_context, chat_id, cookie_id)
 
                 # 3. 获取对话轮数和议价设置（供AI参考）
-                conversation_rounds = self.get_conversation_rounds(chat_id, cookie_id)
+                conversation_rounds = await asyncio.to_thread(self.get_conversation_rounds, chat_id, cookie_id)
                 max_bargain_rounds = settings.get('max_bargain_rounds', 3)
                 max_discount_percent = settings.get('max_discount_percent', 10)
                 max_discount_amount = settings.get('max_discount_amount', 100)
@@ -359,21 +361,21 @@ class AIReplyEngine:
 
                 if self._is_dashscope_api(settings):
                     logger.info("使用DashScope API生成回复")
-                    reply = self._call_dashscope_api(settings, messages, max_tokens=150, temperature=0.7)
+                    reply = await asyncio.to_thread(self._call_dashscope_api, settings, messages, 150, 0.7)
                 
                 elif self._is_gemini_api(settings):
                     logger.info("使用Gemini API生成回复")
-                    reply = self._call_gemini_api(settings, messages, max_tokens=150, temperature=0.7)
+                    reply = await asyncio.to_thread(self._call_gemini_api, settings, messages, 150, 0.7)
                 
                 else:
                     logger.info("使用OpenAI兼容API生成回复")
-                    client = self._create_openai_client(cookie_id)
+                    client = await asyncio.to_thread(self._create_openai_client, cookie_id)
                     if not client:
                         return None
-                    reply = self._call_openai_api(client, settings, messages, max_tokens=150, temperature=0.7)
+                    reply = await asyncio.to_thread(self._call_openai_api, client, settings, messages, 150, 0.7)
 
                 # 10. 保存AI回复到对话记录
-                self.save_conversation(chat_id, cookie_id, user_id, item_id, "assistant", reply, intent=None)
+                await asyncio.to_thread(self.save_conversation, chat_id, cookie_id, user_id, item_id, "assistant", reply, None)
                 
                 logger.info(f"AI回复生成成功 (账号: {cookie_id}): {reply}")
                 return reply
@@ -390,12 +392,11 @@ class AIReplyEngine:
                                    cookie_id: str, user_id: str, item_id: str,
                                    skip_wait: bool = False) -> Optional[str]:
         """
-        异步包装器：在独立线程池中执行同步的 `generate_reply`，并返回结果。
-        这样可以在异步代码中直接 await，而不阻塞事件循环。
+        异步包装器：直接调用异步的 `generate_reply`。
+        保留此方法以兼容旧代码。
         """
         try:
-            import asyncio as _asyncio
-            return await _asyncio.to_thread(self.generate_reply, message, item_info, chat_id, cookie_id, user_id, item_id, skip_wait)
+            return await self.generate_reply(message, item_info, chat_id, cookie_id, user_id, item_id, skip_wait)
         except Exception as e:
             logger.error(f"异步生成回复失败: {e}")
             return None
