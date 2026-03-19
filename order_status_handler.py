@@ -401,11 +401,6 @@ class OrderStatusHandler:
                     logger.info(f"✅ 识别到退款撤销消息")
                     return 'refund_cancelled'
                 
-                # 退款申请被拒绝不需要改变状态，因为没同意
-                # if title == '我发起了退款申请' and button_text == '已拒绝':
-                #     logger.info(f"ℹ️ 识别到退款申请被拒绝消息，不改变订单状态")
-                #     return None
-                
             except Exception as parse_e:
                 logger.debug(f"解析退款消息JSON失败: {parse_e}")
                 return None
