@@ -120,8 +120,6 @@ xianyu-auto-reply/
 │   ├── order_status_handler.py    # 订单状态处理和更新模块
 │   ├── file_log_collector.py      # 实时日志收集和管理系统
 │   ├── config.py                  # 全局配置文件管理器
-│   ├── usage_statistics.py        # 用户统计和数据分析模块
-│   ├── simple_stats_server.py     # 简单统计服务器（可选）
 │   ├── build_binary_module.py     # 二进制模块编译脚本（Nuitka编译工具）
 │   ├── secure_confirm_ultra.py    # 自动确认发货模块（多层加密保护）
 │   ├── secure_confirm_decrypted.py # 自动确认发货模块（解密版本）
@@ -170,8 +168,6 @@ xianyu-auto-reply/
 │   ├── Dockerfile-cn             # 国内优化版Docker镜像构建文件
 │   ├── docker-compose.yml        # Docker Compose一键部署配置
 │   ├── docker-compose-cn.yml     # 国内优化版Docker Compose配置
-│   ├── docker-deploy.sh          # Docker部署管理脚本（Linux/macOS）
-│   ├── docker-deploy.bat         # Docker部署管理脚本（Windows）
 │   ├── entrypoint.sh              # Docker容器启动脚本
 │   └── .dockerignore             # Docker构建忽略文件
 ├── 🌐 Nginx配置
@@ -598,8 +594,6 @@ CPU_LIMIT=2.0                          # CPU限制(核心数)
 - **`Dockerfile-cn`** - 国内优化版Docker镜像构建文件，使用国内镜像源加速构建，适合国内网络环境
 - **`docker-compose.yml`** - Docker Compose配置，支持一键部署、完整环境变量配置、资源限制、健康检查、可选Nginx代理
 - **`docker-compose-cn.yml`** - 国内优化版Docker Compose配置文件，使用国内镜像源
-- **`docker-deploy.sh`** - Docker部署管理脚本，提供构建、启动、停止、重启、监控、日志查看等功能（Linux/macOS）
-- **`docker-deploy.bat`** - Windows版本部署脚本，支持Windows环境一键部署和管理
 - **`entrypoint.sh`** - Docker容器启动脚本，增强版包含环境验证、依赖检查、目录创建、权限设置和详细启动日志
 - **`nginx/nginx.conf`** - Nginx反向代理配置，支持负载均衡、SSL终端、WebSocket代理、静态文件服务
 - **`requirements.txt`** - Python依赖包列表，精简版本无内置模块，按功能分类组织，包含详细版本说明和安装指南，可选Nuitka编译工具
@@ -926,12 +920,8 @@ docker start xianyu-auto-reply
 
 ```bash
 # 方法1：手动修复行结束符
-sed -i 's/\r$//' docker-deploy.sh
-chmod +x docker-deploy.sh
-./docker-deploy.sh
 
 # 方法2：直接使用bash运行
-bash docker-deploy.sh
 ```
 
 ### 5. Docker容器启动失败
@@ -951,7 +941,6 @@ docker-compose up -d
 # 克隆项目并从源码构建
 git clone https://github.com/zhinianboke/xianyu-auto-reply.git
 cd xianyu-auto-reply
-./docker-deploy.sh
 ```
 
 ### 7. Windows系统部署
@@ -959,10 +948,8 @@ Windows用户推荐使用批处理脚本：
 
 ```cmd
 # 使用Windows批处理脚本
-docker-deploy.bat
 
 # 或者使用PowerShell
-powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 ```
 
 ## 📞 技术支持
@@ -1113,7 +1100,6 @@ powershell -ExecutionPolicy Bypass -File docker-deploy.bat
 #### 方式1: Python统计服务器
 ```bash
 # 部署Python统计服务器
-python simple_stats_server.py
 
 # 访问统计服务器查看用户数量
 curl http://localhost:8081/stats

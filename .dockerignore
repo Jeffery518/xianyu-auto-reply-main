@@ -360,4 +360,3 @@ ENV/
 # check_silent_mode.py - 已删除
 # order_status_handler.py - 保留，是核心订单处理模块
 php/
-# simple_stats_server.py - 保留，是可选的统计服务器

@@ -118,12 +118,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # 复制启动脚本
 # 复制启动脚本和调试工具
 COPY entrypoint.sh /app/entrypoint.sh
-COPY debug-xvfb.sh /app/debug-xvfb.sh
 
 # 设置执行权限（使用多种方式确保权限正确）
-RUN chmod +x /app/entrypoint.sh /app/debug-xvfb.sh && \
-    chmod 755 /app/entrypoint.sh /app/debug-xvfb.sh && \
-    ls -la /app/entrypoint.sh /app/debug-xvfb.sh
 
 # 启动命令
 CMD ["/app/entrypoint.sh"]
