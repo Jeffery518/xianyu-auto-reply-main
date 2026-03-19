@@ -4855,67 +4855,6 @@ def get_all_items(current_user: Dict[str, Any] = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"获取商品信息失败: {str(e)}")
 
 
-# ==================== 商品搜索 API ====================
-
-class ItemSearchRequest(BaseModel):
-    keyword: str
-    page: int = 1
-    page_size: int = 20
-
-class ItemSearchMultipleRequest(BaseModel):
-    keyword: str
-    total_pages: int = 1
-
-@app.post("/items/search")
-async def search_items(
-    search_request: ItemSearchRequest,
-    current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
-):
-    """搜索闲鱼商品"""
-    user_info = f"【{current_user.get('username', 'unknown')}#{current_user.get('user_id', 'unknown')}】" if current_user else "【未登录】"
-
-    try:
-        logger.info(f"{user_info} 开始单页搜索: 关键词='{search_request.keyword}', 页码={search_request.page}, 每页={search_request.page_size}")
-
-        from utils.item_search import search_xianyu_items
-
-        # 执行搜索
-        result = await search_xianyu_items(
-            keyword=search_request.keyword,
-            page=search_request.page,
-            page_size=search_request.page_size
-        )
-
-        # 检查是否有错误
-        has_error = result.get("error")
-        items_count = len(result.get("items", []))
-
-        logger.info(f"{user_info} 单页搜索完成: 获取到 {items_count} 条数据" +
-                   (f", 错误: {has_error}" if has_error else ""))
-
-        response_data = {
-            "success": True,
-            "data": result.get("items", []),
-            "total": result.get("total", 0),
-            "page": search_request.page,
-            "page_size": search_request.page_size,
-            "keyword": search_request.keyword,
-            "is_real_data": result.get("is_real_data", False),
-            "source": result.get("source", "unknown")
-        }
-
-        # 如果有错误信息，也包含在响应中
-        if has_error:
-            response_data["error"] = has_error
-
-        return response_data
-
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"{user_info} 商品搜索失败: {error_msg}")
-        raise HTTPException(status_code=500, detail=f"商品搜索失败: {error_msg}")
-
-
 @app.get("/cookies/check")
 async def check_valid_cookies(
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
@@ -4964,56 +4903,6 @@ async def check_valid_cookies(
             "hasValidCookies": False,
             "error": str(e)
         }
-
-@app.post("/items/search_multiple")
-async def search_multiple_pages(
-    search_request: ItemSearchMultipleRequest,
-    current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
-):
-    """搜索多页闲鱼商品"""
-    user_info = f"【{current_user.get('username', 'unknown')}#{current_user.get('user_id', 'unknown')}】" if current_user else "【未登录】"
-
-    try:
-        logger.info(f"{user_info} 开始多页搜索: 关键词='{search_request.keyword}', 页数={search_request.total_pages}")
-
-        from utils.item_search import search_multiple_pages_xianyu
-
-        # 执行多页搜索
-        result = await search_multiple_pages_xianyu(
-            keyword=search_request.keyword,
-            total_pages=search_request.total_pages
-        )
-
-        # 检查是否有错误
-        has_error = result.get("error")
-        items_count = len(result.get("items", []))
-
-        logger.info(f"{user_info} 多页搜索完成: 获取到 {items_count} 条数据" +
-                   (f", 错误: {has_error}" if has_error else ""))
-
-        response_data = {
-            "success": True,
-            "data": result.get("items", []),
-            "total": result.get("total", 0),
-            "total_pages": search_request.total_pages,
-            "keyword": search_request.keyword,
-            "is_real_data": result.get("is_real_data", False),
-            "is_fallback": result.get("is_fallback", False),
-            "source": result.get("source", "unknown")
-        }
-
-        # 如果有错误信息，也包含在响应中
-        if has_error:
-            response_data["error"] = has_error
-
-        return response_data
-
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"{user_info} 多页商品搜索失败: {error_msg}")
-        raise HTTPException(status_code=500, detail=f"多页商品搜索失败: {error_msg}")
-
-
 
 @app.get("/items/cookie/{cookie_id}")
 def get_items_by_cookie(cookie_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
