@@ -5420,25 +5420,6 @@ class XianyuLive:
             # 使用第一个匹配的规则（按关键字长度降序排列，优先匹配更精确的规则）
             rule = delivery_rules[0]
 
-            # 注释掉自动发货时的商品信息保存逻辑，避免重复保存导致item_detail字段内容累积
-            # 商品信息应该在商品列表获取、订单详情获取等其他环节已经保存过了
-            # 保存商品信息到数据库（需要有商品标题才保存）
-            # # 尝试获取商品标题
-            # item_title_for_save = None
-            # try:
-            #     from db_manager import db_manager
-            #     db_item_info = db_manager.get_item_info(self.cookie_id, item_id)
-            #     if db_item_info:
-            #         item_title_for_save = db_item_info.get('item_title', '').strip()
-            # except:
-            #     pass
-            # 
-            # # 如果有商品标题，则保存商品信息
-            # if item_title_for_save:
-            #     await self.save_item_info_to_db(item_id, search_text, item_title_for_save)
-            # else:
-            #     logger.warning(f"跳过保存商品信息：缺少商品标题 - {item_id}")
-
             # 详细的匹配结果日志
             if rule.get('is_multi_spec'):
                 if spec_name and spec_value:
