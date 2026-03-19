@@ -30,9 +30,9 @@ class TestDBManagerSecurity(unittest.TestCase):
         backup_data = {
             'data': {
                 'cookies': {
-                    'columns': ['id', 'value', 'user_id', 'status', 'created_at', 'updated_at', 'last_check_time', 'account_name', 'account_id', 'daily_message_count', 'group_message_count'],
+                    'columns': ['id', 'value', 'user_id', 'created_at'],
                     'rows': [
-                        ['test_cookie', 'test_value', 1, 1, '2023-01-01 00:00:00', '2023-01-01 00:00:00', '2023-01-01 00:00:00', 'test', '123', 0, 0]
+                        ['test_cookie', 'test_value', 1, '2023-01-01 00:00:00']
                     ]
                 },
                 'system_settings': {

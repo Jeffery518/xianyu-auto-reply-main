@@ -5086,98 +5086,14 @@ class XianyuLive:
             logger.error(f"发送自动发货通知异常: {self._safe_str(e)}")
 
     async def auto_confirm(self, order_id, item_id=None, retry_count=0, is_internal_retry=False):
-        """自动确认发货 - 使用加密模块，支持自动Session刷新重试"""
-        try:
-            logger.warning(f"【{self.cookie_id}】开始确认发货，订单ID: {order_id}")
-
-            # 导入解密后的确认发货模块
-            from secure_confirm_decrypted import SecureConfirm
-
-            # 创建确认实例，传入主界面类实例
-            secure_confirm = SecureConfirm(self.session, self.cookies_str, self.cookie_id, self)
-
-            # 传递必要的属性
-            secure_confirm.current_token = self.current_token
-            secure_confirm.last_token_refresh_time = self.last_token_refresh_time
-            secure_confirm.token_refresh_interval = self.token_refresh_interval
-
-            # 调用确认方法，传入item_id用于token刷新
-            result = await secure_confirm.auto_confirm(order_id, item_id, retry_count)
-
-            # 同步更新后的cookies和token
-            if secure_confirm.cookies_str != self.cookies_str:
-                self.cookies_str = secure_confirm.cookies_str
-                self.cookies = secure_confirm.cookies
-                logger.warning(f"【{self.cookie_id}】已同步确认发货模块更新的cookies")
-
-            if secure_confirm.current_token != self.current_token:
-                self.current_token = secure_confirm.current_token
-                self.last_token_refresh_time = secure_confirm.last_token_refresh_time
-                logger.warning(f"【{self.cookie_id}】已同步确认发货模块更新的token")
-
-            # --- 自动Session修复逻辑 ---
-            if result.get('session_expired') and not is_internal_retry:
-                logger.warning(f"【{self.cookie_id}】检测到Session过期，尝试自动刷新Token并重试...")
-                # 触发Token刷新流程，使用 force=True 跳过消息冷却检查
-                new_token = await self.refresh_token(force=True)
-                if new_token:
-                    logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行确认发货重试...")
-                    # 递归调用自身进行重试，标记已重试过，避免死循环
-                    return await self.auto_confirm(order_id, item_id, retry_count=0, is_internal_retry=True)
-                else:
-                    logger.error(f"【{self.cookie_id}】Token刷新未返回新令牌（可能已触发重启或失败），无法继续自动重试")
-                    await self.send_token_refresh_notification(f"自动确认发货由于Token刷新失败而中止: 订单 {order_id}", "auto_confirm_token_fail")
-
-            return result
-
-        except Exception as e:
-            logger.error(f"【{self.cookie_id}】加密确认模块调用失败: {self._safe_str(e)}")
-            return {"error": f"加密确认模块调用失败: {self._safe_str(e)}", "order_id": order_id}
+        """自动确认发货功能已移除"""
+        logger.warning(f"【{self.cookie_id}】自动确认发货功能已移除，跳过订单: {order_id}")
+        return {"error": "自动确认发货功能已移除", "order_id": order_id}
 
     async def auto_freeshipping(self, order_id, item_id, buyer_id, retry_count=0, is_internal_retry=False):
-        """自动免拼发货 - 支持自动Session刷新重试"""
-        try:
-            logger.warning(f"【{self.cookie_id}】开始免拼发货，订单ID: {order_id}")
-
-            # 导入解密后的免拼发货模块
-            from secure_freeshipping_decrypted import SecureFreeshipping
-
-            # 创建免拼发货实例
-            secure_freeshipping = SecureFreeshipping(self.session, self.cookies_str, self.cookie_id)
-
-            # 传递必要的属性
-            secure_freeshipping.current_token = self.current_token
-            secure_freeshipping.last_token_refresh_time = self.last_token_refresh_time
-            secure_freeshipping.token_refresh_interval = self.token_refresh_interval
-
-            # 调用免拼发货方法
-            result = await secure_freeshipping.auto_freeshipping(order_id, item_id, buyer_id, retry_count)
-            
-            # --- 自动Session修复逻辑 ---
-            if result.get('session_expired') and not is_internal_retry:
-                logger.warning(f"【{self.cookie_id}】检测到免拼发货Session过期，尝试自动刷新Token并重试...")
-                # 触发Token刷新流程，使用 force=True 跳过消息冷却检查
-                new_token = await self.refresh_token(force=True)
-                if new_token:
-                    logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行免拼发货重试...")
-                    return await self.auto_freeshipping(order_id, item_id, buyer_id, retry_count=0, is_internal_retry=True)
-
-            if result and result.get('success'):
-                # 记录订单已成功发货，避免后续重复尝试
-                self.confirmed_orders[order_id] = time.time()
-                logger.info(f"【{self.cookie_id}】已记录免拼发货成功状态: {order_id}")
-            else:
-                error_msg = result.get('error', '未知错误') if result else '未知错误'
-                logger.error(f"【{self.cookie_id}】自动免拼发货失败: {error_msg}")
-                await self.send_token_refresh_notification(f"自动免拼发货失败: {error_msg} (订单: {order_id})", "auto_freeshipping_fail")
-
-            return result
-
-        except Exception as e:
-            logger.error(f"【{self.cookie_id}】免拼发货模块调用失败: {self._safe_str(e)}")
-            import traceback
-            logger.error(f"【{self.cookie_id}】异常详情:\n{traceback.format_exc()}")
-            return {"error": f"免拼发货模块调用失败: {self._safe_str(e)}", "order_id": order_id}
+        """自动免拼发货功能已移除"""
+        logger.warning(f"【{self.cookie_id}】自动免拼发货功能已移除，跳过订单: {order_id}")
+        return {"error": "自动免拼发货功能已移除", "order_id": order_id}
 
     async def fetch_order_detail_info(self, order_id: str, item_id: str = None, buyer_id: str = None, debug_headless: bool = None, sid: str = None):
         """获取订单详情信息（使用独立的锁机制，不受延迟锁影响）
