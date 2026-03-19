@@ -41,7 +41,7 @@ GOLDEN_PARAMS = {
         "steps": (6, 8),                       # 步数范围（原5-8）
         "base_delay": (0.0003, 0.0006),       # 基础延迟（秒）
         "acceleration_curve": (1.4, 1.65),    # 加速曲线（原1.3-1.8）
-        "y_jitter_max": (1.5, 2.5),           # Y轴抖动范围（像素）
+        "y_jitter_max": (2.0, 4.0),           # Y轴抖动范围（像素）
     },
     # 滑动行为参数（🔧 2025-12-22 基于成功记录修正）
     "slide_behavior": {
@@ -91,7 +91,7 @@ ML_STRATEGY_CONFIG = {
             "steps": (25, 35),                  # 更多步数
             "base_delay": (0.008, 0.015),      # 🔧 改为合理延迟（8-15ms）
             "acceleration_curve": (1.8, 2.2),  # 更平滑的ease-out
-            "y_jitter_max": (1.2, 1.8),        # 较小Y抖动
+            "y_jitter_max": (2.0, 3.5),        # 较小Y抖动
             "weight": 0.25,
         },
         # 标准策略：中等超调，平衡速度与精度
@@ -100,7 +100,7 @@ ML_STRATEGY_CONFIG = {
             "steps": (22, 30),                  
             "base_delay": (0.006, 0.012),      # 6-12ms延迟
             "acceleration_curve": (1.6, 2.0),  
-            "y_jitter_max": (1.5, 2.2),        
+            "y_jitter_max": (2.5, 4.0),
             "weight": 0.45,
         },
         # 激进策略：较大超调，快速滑动
@@ -109,7 +109,7 @@ ML_STRATEGY_CONFIG = {
             "steps": (20, 28),                  
             "base_delay": (0.004, 0.010),      # 4-10ms延迟（更快）
             "acceleration_curve": (1.4, 1.8),  # 更陡的加速曲线
-            "y_jitter_max": (1.8, 2.8),        
+            "y_jitter_max": (3.0, 5.0),
             "weight": 0.30,
         },
     },
@@ -125,8 +125,8 @@ ML_STRATEGY_CONFIG = {
     "learning_bounds": {
         "max_overshoot_ratio": 1.15,      # 最大15%超调
         "min_overshoot_ratio": 1.01,      # 最小1%超调
-        "max_y_jitter": 3.0,              
-        "min_y_jitter": 1.0,              
+        "max_y_jitter": 5.0,
+        "min_y_jitter": 2.0,
         "max_acceleration_curve": 2.5,    
         "min_acceleration_curve": 1.3,    
     },
@@ -695,7 +695,7 @@ class XianyuSliderStealth:
             "total_steps_range": [20, 35],  # 拟人：20-35步（减少VPS上Playwright IPC开销）
             "base_delay_range": [0.02, 0.04],  # 拟人：20-40ms延迟，总耗时1-2.5秒
             "jitter_x_range": [-3, 12],  # 明显的垂直抖动
-            "jitter_y_range": [-3, 10],  # 明显的水平抖动
+            "jitter_y_range": [2.0, 5.0],  # 明显的Y轴抖动
             "slow_factor_range": [8, 15],  # 慢速阶段倍率
             "acceleration_phase": 0.1,  # 10%全程加速阶段
             "fast_phase": 0.75,  # 75%前快速，后25%明显减速缓冲
@@ -1485,15 +1485,25 @@ class XianyuSliderStealth:
     def _get_stealth_script(self, browser_features):
         """获取增强反检测脚本"""
         return f"""
-            // 隐藏webdriver属性
+            // 隐藏webdriver属性（多层防护）
             Object.defineProperty(navigator, 'webdriver', {{
                 get: () => undefined,
+                configurable: true
             }});
             
             // 隐藏自动化相关属性
-            delete navigator.__proto__.webdriver;
-            delete window.navigator.webdriver;
-            delete window.navigator.__proto__.webdriver;
+            try {{
+                delete navigator.__proto__.webdriver;
+                delete window.navigator.webdriver;
+                delete window.navigator.__proto__.webdriver;
+
+                // 更深入的隐藏
+                if (navigator.webdriver !== undefined) {{
+                    const newProto = navigator.__proto__;
+                    delete newProto.webdriver;
+                    navigator.__proto__ = newProto;
+                }}
+            }} catch (e) {{}}
             
             // 模拟真实浏览器环境
             window.chrome = {{
@@ -1568,7 +1578,6 @@ class XianyuSliderStealth:
             }});
             
             // 隐藏自动化检测特征
-            Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
             Object.defineProperty(navigator, '__webdriver_script_fn', {{ get: () => undefined }});
             Object.defineProperty(navigator, '__webdriver_evaluate', {{ get: () => undefined }});
             Object.defineProperty(navigator, '__webdriver_unwrapped', {{ get: () => undefined }});
@@ -1588,21 +1597,17 @@ class XianyuSliderStealth:
             }});
             
             // 隐藏自动化相关的全局变量
-            delete window.webdriver;
-            delete window.__webdriver_script_fn;
-            delete window.__webdriver_evaluate;
-            delete window.__webdriver_unwrapped;
-            delete window.__fxdriver_evaluate;
-            delete window.__driver_evaluate;
-            delete window.__webdriver_script_func;
-            delete window._selenium;
-            delete window._phantom;
-            delete window.callPhantom;
-            delete window._phantom;
-            delete window.phantom;
-            delete window.Buffer;
-            delete window.emit;
-            delete window.spawn;
+            const varsToRemove = [
+                'webdriver', '__webdriver_script_fn', '__webdriver_evaluate',
+                '__webdriver_unwrapped', '__fxdriver_evaluate', '__driver_evaluate',
+                '__webdriver_script_func', '_selenium', '_phantom', 'callPhantom',
+                'phantom', 'Buffer', 'emit', 'spawn'
+            ];
+            for (const v of varsToRemove) {{
+                try {{
+                    delete window[v];
+                }} catch (e) {{}}
+            }}
             
             // Canvas指纹随机化
             const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
@@ -1853,11 +1858,6 @@ class XianyuSliderStealth:
                     return originalReadText.call(this);
                 }};
             }}
-            
-            // 🔑 关键优化：隐藏CDP运行时特征
-            Object.defineProperty(navigator, 'webdriver', {{
-                get: () => undefined
-            }});
             
             // 🔑 隐藏自动化控制特征
             window.navigator.chrome = {{
@@ -2123,14 +2123,14 @@ class XianyuSliderStealth:
         
         # 贝塞尔控制点（三次贝塞尔）
         p0 = 0  # 起点
-        p1 = overshoot_target * random.uniform(0.2, 0.35)  # 控制点1（早期加速）
-        p2 = overshoot_target * random.uniform(0.7, 0.85)  # 控制点2（后期减速）
+        p1 = overshoot_target * random.uniform(0.1, 0.4)  # 控制点1（早期加速）
+        p2 = overshoot_target * random.uniform(0.6, 0.9)  # 控制点2（后期减速）
         p3 = overshoot_target  # 终点（超调位置）
         
         # Y轴使用连续噪声（模拟手部自然抖动）
         y_phase = random.uniform(0, 2 * 3.14159)  # 随机起始相位
-        y_freq1 = random.uniform(0.3, 0.5)  # 低频波动（手臂移动）
-        y_freq2 = random.uniform(1.5, 2.5)  # 高频波动（手指颤抖）
+        y_freq1 = random.uniform(0.2, 0.6)  # 低频波动（手臂移动）
+        y_freq2 = random.uniform(1.2, 3.0)  # 高频波动（手指颤抖）
         
         prev_x = 0
         prev_y = 0
@@ -2142,6 +2142,11 @@ class XianyuSliderStealth:
             # 使用ease-out曲线（开始快，结束慢）
             eased_t = 1 - (1 - t) ** acceleration_curve
             
+            # 增加少量的非倒退性加速扰动（防止向后滑动）
+            if i % 3 == 0 and t > 0.1 and t < 0.9:
+                perturbation = random.uniform(0.005, 0.015)
+                eased_t = min(1.0, eased_t + perturbation)
+
             # 三次贝塞尔曲线计算X位置
             x = (1-eased_t)**3 * p0 + \
                 3*(1-eased_t)**2 * eased_t * p1 + \
@@ -2151,25 +2156,30 @@ class XianyuSliderStealth:
             # 连续Y轴波动（叠加低频+高频）
             y_low = math.sin(y_phase + t * 3.14159 * y_freq1) * y_jitter_max * 0.6
             y_high = math.sin(y_phase * 2 + t * 3.14159 * y_freq2) * y_jitter_max * 0.4
-            y = y_low + y_high + random.uniform(-0.3, 0.3)  # 添加微小随机噪声
+
+            # 增加突发性1-2像素微颤
+            tremble = random.choice([0, 0, 0, random.uniform(1.0, 2.0), random.uniform(-2.0, -1.0)])
+            y = y_low + y_high + random.uniform(-0.5, 0.5) + tremble
             
             # 速度自适应延迟：开始和结束慢，中间快
             speed_factor = math.sin(t * 3.14159)  # 0->1->0
             
+            # 增加突发延迟（模拟手指黏滞感或系统卡顿）
+            burst_delay = random.uniform(0.01, 0.03) if random.random() < 0.05 else 0
+
             # 【优化】防止两端速度过慢导致总体延迟爆炸 (20+秒)
-            # 原本下限是 0.1 ，现在调整为 0.35 来保证全流程不超过 3-5 秒
             if speed_factor < 0.35:
                 speed_factor = 0.35
             
             # 基础延迟 + 速度调整 + 随机抖动
-            delay = base_delay / speed_factor * random.uniform(0.85, 1.15)
+            delay = base_delay / speed_factor * random.uniform(0.8, 1.2) + burst_delay
             
             # 中间可能有微小停顿（3%概率，模拟人类犹豫/调整）
             if 0.2 < t < 0.8 and random.random() < 0.03:
-                delay += random.uniform(0.01, 0.02)
+                delay += random.uniform(0.015, 0.03)
             
-            # 添加微小位移抖动（生理性颤抖，±0.5px）
-            x += random.uniform(-0.5, 0.5)
+            # 添加微小位移抖动（生理性颤抖，±0.5px-1.5px）
+            x += random.uniform(-1.0, 1.5)
             
             trajectory.append((x, y, delay))
             prev_x, prev_y = x, y
@@ -2190,13 +2200,14 @@ class XianyuSliderStealth:
                 x = overshoot_target - retreat_distance * eased_t
                 
                 # Y轴继续波动
-                y = prev_y * (1 - t) + random.uniform(-y_jitter_max * 0.3, y_jitter_max * 0.3)
+                tremble = random.choice([0, 0, random.uniform(0.5, 1.5), random.uniform(-1.5, -0.5)])
+                y = prev_y * (1 - t) + random.uniform(-y_jitter_max * 0.5, y_jitter_max * 0.5) + tremble
                 
                 # 回退时速度更慢（人类精确调整时更谨慎）
-                delay = base_delay * random.uniform(1.2, 1.8)
+                delay = base_delay * random.uniform(1.3, 2.2)
                 
                 # 微小位移抖动
-                x += random.uniform(-0.3, 0.3)
+                x += random.uniform(-0.8, 0.8)
                 
                 trajectory.append((x, y, delay))
                 prev_x, prev_y = x, y
@@ -2207,13 +2218,13 @@ class XianyuSliderStealth:
         for _ in range(fine_tune_count):
             # 在目标位置附近做微小调整
             x = distance + random.uniform(-1.5, 1.5)
-            y = random.uniform(-y_jitter_max * 0.2, y_jitter_max * 0.2)
-            delay = base_delay * random.uniform(0.8, 1.5)
+            y = random.uniform(-y_jitter_max * 0.5, y_jitter_max * 0.5)
+            delay = base_delay * random.uniform(0.8, 1.8)
             trajectory.append((x, y, delay))
         
         # 确保最后一个点非常接近目标
         final_x = distance + random.uniform(-0.5, 0.5)
-        final_y = random.uniform(-0.2, 0.2)
+        final_y = random.uniform(-0.5, 0.5)
         trajectory.append((final_x, final_y, base_delay * random.uniform(0.5, 1.0)))
         
         logger.info(f"【{self.pure_user_id}】🎯 贝塞尔轨迹：{len(trajectory)}步，"
@@ -3147,15 +3158,36 @@ class XianyuSliderStealth:
                         if (button && track) {
                             const buttonRect = button.getBoundingClientRect();
                             const trackRect = track.getBoundingClientRect();
-                            // 计算实际可滑动距离（考虑padding和边距）
-                            return trackRect.width - buttonRect.width;
+                            // 检查是否有CSS缩放(transform: scale)
+                            let scale = 1.0;
+                            let el = track;
+                            while(el && el !== document.body) {
+                                const style = window.getComputedStyle(el);
+                                const transform = style.transform;
+                                if (transform && transform !== 'none') {
+                                    // matrix(a, b, c, d, tx, ty)
+                                    const match = transform.match(/^matrix\\((.+)\\)$/);
+                                    if(match) {
+                                        scale = parseFloat(match[1].split(',')[0]);
+                                        break;
+                                    }
+                                }
+                                el = el.parentElement;
+                            }
+
+                            // 考虑到缩放比例计算真实需要移动的鼠标像素
+                            const actualSlideDist = (trackRect.width - buttonRect.width) / scale;
+
+                            // 返回实际需滑动距离和缩放比例
+                            return { dist: actualSlideDist, scale: scale };
                         }
                         return null;
                     }
                 """)
                 
-                if precise_distance and precise_distance > 0:
-                    logger.info(f"【{self.pure_user_id}】使用JavaScript精确计算滑动距离: {precise_distance:.2f}px")
+                if precise_distance and precise_distance['dist'] > 0:
+                    logger.info(f"【{self.pure_user_id}】使用JavaScript精确计算滑动距离: {precise_distance['dist']:.2f}px (缩放系数: {precise_distance['scale']})")
+                    precise_distance = precise_distance['dist']
                     
                     # 🎨 刮刮乐特殊处理：只滑动75-85%的距离
                     if is_scratch:
@@ -3467,9 +3499,9 @@ class XianyuSliderStealth:
                     element = target_frame.query_selector(selector)
                     if element:
                         try:
-                            # 获取元素位置，点击中心
+                            # 获取元素位置，如果是主页面使用mouse.click()，如果是frame则直接用element.click()
                             box = element.bounding_box()
-                            if box:
+                            if box and hasattr(target_frame, 'mouse'):
                                 click_x = box['x'] + box['width'] / 2
                                 click_y = box['y'] + box['height'] / 2
                                 target_frame.mouse.click(click_x, click_y)
@@ -3477,6 +3509,7 @@ class XianyuSliderStealth:
                                 clicked = True
                                 time.sleep(0.3)  # 短暂等待
                                 break
+                            else:
                                 # 如果无法获取位置或目标是Frame，直接用元素.click()
                                 try:
                                     element.click(timeout=1000)
