@@ -2797,13 +2797,17 @@ class DBManager:
                     # 构建插入语句
                     placeholders = ','.join(['?' for _ in columns])
 
+                    # 安全处理表名和列名，防止SQL注入（尽管已经经过了白名单和isidentifier检查）
+                    quoted_table_name = f'"{table_name}"'
+                    quoted_columns = ','.join([f'"{col}"' for col in columns])
+
                     if table_name == 'system_settings':
                         # 系统设置需要特殊处理，避免覆盖管理员密码
                         for row in rows:
                             if len(row) >= 1 and row[0] != 'admin_password_hash':
-                                self._execute_sql(cursor, f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})", tuple(row))
+                                self._execute_sql(cursor, f"INSERT INTO {quoted_table_name} ({quoted_columns}) VALUES ({placeholders})", tuple(row))
                     else:
-                        self._executemany_sql(cursor, f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})", rows)
+                        self._executemany_sql(cursor, f"INSERT INTO {quoted_table_name} ({quoted_columns}) VALUES ({placeholders})", rows)
 
                 # 提交事务
                 self.conn.commit()
