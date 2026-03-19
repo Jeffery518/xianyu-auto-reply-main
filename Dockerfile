@@ -1,5 +1,43 @@
 # 使用国内 DaoCloud 镜像源，绕过官方 Docker Hub 屏蔽
 ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim-bookworm
+
+# ================================
+# 第一阶段：构建依赖 (Builder)
+# ================================
+FROM ${BASE_IMAGE} AS builder
+
+WORKDIR /app
+
+# 更换中科大源
+RUN sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources
+
+# 安装构建必需的系统包
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        build-essential \
+        libjpeg-dev \
+        libpng-dev \
+        libfreetype6-dev \
+        && apt-get clean \
+        && rm -rf /var/lib/apt/lists/*
+
+# 创建Python虚拟环境
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 安装Playwright及其浏览器（利用pip安装playwright后下载chromium）
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install chromium
+
+# ================================
+# 第二阶段：最终运行环境 (Runner)
+# ================================
 FROM ${BASE_IMAGE}
 
 # 设置标签信息
@@ -9,10 +47,7 @@ LABEL description="闲鱼自动回复系统 - 企业级多用户版本，支持�
 LABEL repository="https://github.com/zhinianboke/xianyu-auto-reply"
 LABEL license="仅供学习使用，禁止商业用途"
 LABEL author="zhinianboke"
-LABEL build-date=""
-LABEL vcs-ref=""
 
-# 设置工作目录
 WORKDIR /app
 
 # 设置环境变量
@@ -21,26 +56,20 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV TZ=Asia/Shanghai
 ENV DOCKER_ENV=true
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PATH="/opt/venv/bin:$PATH"
 
-#更换中科大源
+# 更换中科大源
 RUN sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources
 
-# 安装系统依赖（包括Playwright浏览器依赖）
+# 安装必要的运行时系统依赖 (去除冗余的 npm, chromium 等)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        # 基础工具
         nodejs \
-        npm \
         tzdata \
         curl \
         ca-certificates \
-        # 图像处理依赖
-        libjpeg-dev \
-        libpng-dev \
-        libfreetype6-dev \
         fonts-dejavu-core \
         fonts-liberation \
-        # Playwright浏览器依赖
         libnss3 \
         libnspr4 \
         libatk-bridge2.0-0 \
@@ -67,11 +96,9 @@ RUN apt-get update && \
         libx11-xcb1 \
         libxfixes3 \
         xdg-utils \
-        chromium \
         xvfb \
         x11vnc \
         fluxbox \
-        # OpenCV运行时依赖
         libgl1 \
         libglib2.0-0 \
         && apt-get clean \
@@ -82,21 +109,15 @@ RUN apt-get update && \
 # 设置时区
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# 验证Node.js安装并设置环境变量
-RUN node --version && npm --version
-ENV NODE_PATH=/usr/lib/node_modules
+# 验证Node.js安装
+RUN node --version
 
-# 复制requirements.txt并安装Python依赖
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple&& \
-    pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 从builder阶段复制虚拟环境和Playwright浏览器缓存
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /ms-playwright /ms-playwright
 
 # 复制项目文件
 COPY . .
-
-# 安装Playwright浏览器（必须在复制项目文件之后）
-RUN playwright install chromium && \
-    playwright install-deps chromium
 
 # 创建必要的目录并设置权限
 RUN mkdir -p /app/logs /app/data /app/backups /app/static/uploads/images && \
@@ -105,21 +126,12 @@ RUN mkdir -p /app/logs /app/data /app/backups /app/static/uploads/images && \
 # 配置系统限制，防止core文件生成
 RUN echo "ulimit -c 0" >> /etc/profile
 
-# 注意: 为了简化权限问题，使用root用户运行
-# 在生产环境中，建议配置适当的用户映射
-
-# 暴露端口
 EXPOSE 8080
 
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# 复制启动脚本
-# 复制启动脚本和调试工具
 COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# 设置执行权限（使用多种方式确保权限正确）
-
-# 启动命令
 CMD ["/app/entrypoint.sh"]
