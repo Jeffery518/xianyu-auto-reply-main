@@ -1226,53 +1226,73 @@ class XianyuLive:
         try:
             order_id = None
             
-            # 方法1: 从button的targetUrl中提取orderId
-            if isinstance(message, dict) and "1" in message and isinstance(message["1"], dict):
-                message_1 = message["1"]
-                if "6" in message_1 and isinstance(message_1["6"], dict):
-                    message_6 = message_1["6"]
-                    if "3" in message_6 and isinstance(message_6["3"], dict):
-                        message_6_3 = message_6["3"]
-                        if "5" in message_6_3:
-                            try:
-                                content_str = message_6_3["5"]
-                                content_data = json.loads(content_str)
-                                # 从button的targetUrl中提取orderId
-                                target_url = content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', '')
-                                if target_url and 'orderId=' in target_url:
-                                    order_match = re.search(r'orderId=(\d+)', target_url)
-                                    if order_match:
-                                        order_id = order_match.group(1)
-                                        logger.info(f'【{self.cookie_id}】从button targetUrl提取到订单ID: {order_id}')
-                            except (json.JSONDecodeError, KeyError) as e:
-                                logger.warning(f"【{self.cookie_id}】解析评价消息JSON失败: {e}")
-            
-            # 方法2: 从extJson中提取orderId
+            # 方法1: 从消息详情内容(dxCard)中提取
+            try:
+                # 准备可能包含 JSON 内容的字段列表
+                content_sources = []
+                if isinstance(message.get("1"), dict):
+                    m1 = message["1"]
+                    if isinstance(m1.get("6"), dict) and isinstance(m1["6"].get("3"), dict):
+                        if "5" in m1["6"]["3"]:
+                            content_sources.append(m1["6"]["3"]["5"])
+                
+                for content_str in content_sources:
+                    if not content_str: continue
+                    content_data = json.loads(content_str)
+                    
+                    # 检查所有可能的 URL 字段
+                    urls = []
+                    # 路径1: button targetUrl
+                    urls.append(content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', ''))
+                    # 路径2: main targetUrl
+                    urls.append(content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('targetUrl', ''))
+                    # 路径3: dynamicOperation button targetUrl
+                    urls.append(content_data.get('dynamicOperation', {}).get('changeContent', {}).get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', ''))
+                    
+                    for url in urls:
+                        if url:
+                            # 匹配 tradeId, orderId, id 等参数
+                            match = re.search(r'(?:tradeId|orderId|id)=(\d{15,})', url)
+                            if match:
+                                order_id = match.group(1)
+                                logger.info(f'【{self.cookie_id}】从 URL 提取到订单ID: {order_id}')
+                                break
+                    if order_id: break
+            except Exception as e:
+                logger.debug(f"从 dxCard 提取订单ID失败: {e}")
+
+            # 方法2: 从 extJson -> updateKey 中提取
             if not order_id:
-                if isinstance(message, dict) and "1" in message and isinstance(message["1"], dict):
-                    message_1 = message["1"]
-                    if "10" in message_1 and isinstance(message_1["10"], dict):
-                        ext_json_str = message_1["10"].get("extJson", "")
-                        if ext_json_str:
-                            try:
-                                ext_json = json.loads(ext_json_str)
-                                # 从updateKey中提取orderId
-                                update_key = ext_json.get("updateKey", "")
-                                if update_key:
-                                    # updateKey格式: "3114528891587728869:20:BUYER_CONFIRM_RATE_SELLER:74"
-                                    parts = update_key.split(":")
-                                    if len(parts) > 0 and parts[0].isdigit():
-                                        order_id = parts[0]
-                                        logger.info(f'【{self.cookie_id}】从updateKey提取到订单ID: {order_id}')
-                            except (json.JSONDecodeError, KeyError) as e:
-                                logger.warning(f"【{self.cookie_id}】解析extJson失败: {e}")
-            
-            # 方法3: 正则搜索整个消息
+                try:
+                    ext_json_str = ""
+                    if isinstance(message.get("1"), dict):
+                        ext_json_str = message["1"].get("10", {}).get("extJson", "")
+                    elif isinstance(message.get("4"), dict):
+                        ext_json_str = message["4"].get("extJson", "")
+                    
+                    if ext_json_str:
+                        ext_json = json.loads(ext_json_str)
+                        update_key = ext_json.get("updateKey", "")
+                        if update_key:
+                            # updateKey 常见格式: 
+                            # 1. "orderId:type:..."
+                            # 2. "sid:orderId:type:..."
+                            parts = update_key.split(":")
+                            for p in parts:
+                                # 寻找符合订单ID特征的长数字（15-20位）
+                                if p.isdigit() and 15 <= len(p) <= 22:
+                                    order_id = p
+                                    logger.info(f'【{self.cookie_id}】从 updateKey 提取到订单ID: {order_id}')
+                                    break
+                except Exception as e:
+                    logger.debug(f"从 updateKey 提取订单ID失败: {e}")
+
+            # 方法3: 正则搜索整个消息字符串
             if not order_id:
                 message_str = str(message)
                 patterns = [
-                    r'orderId[=:](\d{10,})',
-                    r'"updateKey"\s*:\s*"(\d{10,})',
+                    r'(?:orderId|tradeId|trade_id|id)[=:]"?(\d{15,})"?',
+                    r'":\s*"(\d{19})"', # 匹配 19 位数字字符串
                 ]
                 for pattern in patterns:
                     match = re.search(pattern, message_str)
@@ -2029,7 +2049,7 @@ class XianyuLive:
 
 
 
-    async def refresh_token(self, captcha_retry_count: int = 0):
+    async def refresh_token(self, captcha_retry_count: int = 0, force: bool = False):
         """刷新token
 
         Args:
@@ -2056,9 +2076,10 @@ class XianyuLive:
                 return None
 
             # 【消息接收检查】检查是否在消息接收后的冷却时间内，与 cookie_refresh_loop 保持一致
+            # 如果 force 为 True，则跳过冷却检查（用于致命错误后的自动修复）
             current_time = time.time()
             time_since_last_message = current_time - self.last_message_received_time
-            if self.last_message_received_time > 0 and time_since_last_message < self.message_cookie_refresh_cooldown:
+            if not force and self.last_message_received_time > 0 and time_since_last_message < self.message_cookie_refresh_cooldown:
                 remaining_time = self.message_cookie_refresh_cooldown - time_since_last_message
                 remaining_minutes = int(remaining_time // 60)
                 remaining_seconds = int(remaining_time % 60)
@@ -2458,13 +2479,21 @@ class XianyuLive:
                 import concurrent.futures
 
                 loop = asyncio.get_event_loop()
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    # 执行滑块验证
-                    success, cookies = await loop.run_in_executor(
-                        executor,
-                        slider_stealth.run,
-                        verification_url
+                # 在线程池中执行滑块验证，增加超时保护
+                try:
+                    success, cookies = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            slider_stealth.run,
+                            verification_url
+                        ),
+                        timeout=300.0  # 给滑块验证5分钟宽限
                     )
+                except asyncio.TimeoutError:
+                    logger.error(f"【{self.cookie_id}】滑块验证执行超时 (300秒)")
+                    success, cookies = False, None
+                except Exception as e:
+                    logger.error(f"【{self.cookie_id}】滑块验证执行异常: {self._safe_str(e)}")
+                    success, cookies = False, None
 
                 if success and cookies:
                     logger.info(f"【{self.cookie_id}】滑块验证成功，获取到新的cookies")
@@ -2965,87 +2994,6 @@ class XianyuLive:
             'details': []
         }
         
-        # 1. 测试确认发货API - 使用测试订单ID实际调用
-        # try:
-        #     logger.info(f"【{self.cookie_id}】测试确认发货API（使用测试数据实际调用）...")
-            
-        #     # 确保session存在
-        #     if not self.session:
-        #         import aiohttp
-        #         connector = aiohttp.TCPConnector(limit=100, limit_per_host=30)
-        #         timeout = aiohttp.ClientTimeout(total=30)
-        #         self.session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-            
-        #     # 创建临时的确认发货实例
-        #     from secure_confirm_decrypted import SecureConfirm
-        #     confirm_tester = SecureConfirm(
-        #         session=self.session,
-        #         cookies_str=self.cookies_str,
-        #         cookie_id=self.cookie_id,
-        #         main_instance=self
-        #     )
-            
-        #     # 使用一个测试订单ID（不存在的订单ID）
-        #     # 如果Cookie有效，应该返回"订单不存在"类的错误
-        #     # 如果Cookie无效，会返回"Session过期"错误
-        #     test_order_id = "999999999999999999"  # 不存在的测试订单ID
-            
-        #     # 实际调用API (retry_count=3阻止重试，快速失败)
-        #     response = await confirm_tester.auto_confirm(test_order_id, retry_count=3)
-            
-        #     # 分析响应
-        #     if response and isinstance(response, dict):
-        #         error_msg = str(response.get('error', ''))
-        #         success = response.get('success', False)
-                
-        #         # 检查是否是Session过期错误
-        #         if 'Session过期' in error_msg or 'SESSION_EXPIRED' in error_msg:
-        #             logger.warning(f"【{self.cookie_id}】❌ 确认发货API验证失败: Session过期")
-        #             result['confirm_api'] = False
-        #             result['valid'] = False
-        #             result['details'].append("确认发货API: Session过期")
-        #         elif '令牌过期' in error_msg:
-        #             logger.warning(f"【{self.cookie_id}】❌ 确认发货API验证失败: 令牌过期")
-        #             result['confirm_api'] = False
-        #             result['valid'] = False
-        #             result['details'].append("确认发货API: 令牌过期")
-        #         elif success:
-        #             # 竟然成功了（不太可能，因为是测试订单ID）
-        #             logger.info(f"【{self.cookie_id}】✅ 确认发货API验证通过: API调用成功")
-        #             result['confirm_api'] = True
-        #             result['details'].append("确认发货API: 通过验证")
-        #         elif error_msg and len(error_msg) > 0:
-        #             # 有其他错误信息（如订单不存在、重试次数过多等），说明Cookie是有效的
-        #             logger.info(f"【{self.cookie_id}】✅ 确认发货API验证通过: Cookie有效（返回业务错误: {error_msg[:50]}）")
-        #             result['confirm_api'] = True
-        #             result['details'].append(f"确认发货API: 通过验证")
-        #         else:
-        #             # 没有明确信息，保守认为可能有问题
-        #             logger.warning(f"【{self.cookie_id}】⚠️ 确认发货API验证警告: 响应不明确")
-        #             result['confirm_api'] = False
-        #             result['valid'] = False
-        #             result['details'].append("确认发货API: 响应不明确")
-        #     else:
-        #         # 没有响应，可能有问题
-        #         logger.warning(f"【{self.cookie_id}】⚠️ 确认发货API验证警告: 无响应")
-        #         result['confirm_api'] = False
-        #         result['valid'] = False
-        #         result['details'].append("确认发货API: 无响应")
-                    
-        # except Exception as e:
-        #     error_str = self._safe_str(e)
-        #     # 检查异常信息中是否包含Session过期
-        #     if 'Session过期' in error_str or 'SESSION_EXPIRED' in error_str:
-        #         logger.warning(f"【{self.cookie_id}】❌ 确认发货API验证失败: Session过期")
-        #         result['confirm_api'] = False
-        #         result['valid'] = False
-        #         result['details'].append("确认发货API: Session过期")
-        #     else:
-        #         logger.error(f"【{self.cookie_id}】确认发货API验证异常: {error_str}")
-        #         # 网络异常等问题，不一定是Cookie问题，暂时标记为通过
-        #         result['confirm_api'] = True
-        #         result['details'].append(f"确认发货API: 调用异常(可能非Cookie问题)")
-        
         # 2. 测试图片上传API - 创建测试图片并实际上传
         try:
             logger.info(f"【{self.cookie_id}】测试图片上传API（使用测试图片实际上传）...")
@@ -3352,6 +3300,11 @@ class XianyuLive:
         except asyncio.CancelledError:
             # 如果被取消，确保锁能正确释放
             raise
+        except Exception as e:
+            logger.error(f"清理商品详情缓存异常: {e}")
+            import traceback
+            logger.error(f"清理商品详情缓存异常详情:\n{traceback.format_exc()}")
+            return 0
 
     async def _fetch_item_detail_from_browser(self, item_id: str) -> str:
         """使用浏览器获取商品详情"""
@@ -3487,11 +3440,15 @@ class XianyuLive:
 
             except Exception as e:
                 logger.warning(f"获取商品详情元素失败: {item_id}, 错误: {self._safe_str(e)}")
+                import traceback
+                logger.warning(f"获取商品详情元素失败详情:\n{traceback.format_exc()}")
 
             return ""
 
         except Exception as e:
             logger.error(f"浏览器获取商品详情异常: {item_id}, 错误: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"浏览器获取商品详情异常详情:\n{traceback.format_exc()}")
             return ""
         finally:
             # 确保资源被正确清理
@@ -3501,6 +3458,8 @@ class XianyuLive:
                     logger.warning(f"Browser已关闭: {item_id}")
             except Exception as e:
                 logger.warning(f"关闭browser时出错: {self._safe_str(e)}")
+                import traceback
+                logger.warning(f"关闭browser时出错详情:\n{traceback.format_exc()}")
             
             try:
                 if playwright:
@@ -3508,6 +3467,8 @@ class XianyuLive:
                     logger.warning(f"Playwright已停止: {item_id}")
             except Exception as e:
                 logger.warning(f"停止playwright时出错: {self._safe_str(e)}")
+                import traceback
+                logger.warning(f"停止playwright时出错详情:\n{traceback.format_exc()}")
 
 
     async def save_items_list_to_db(self, items_list):
@@ -3607,6 +3568,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"批量保存商品信息异常: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"批量保存商品信息异常详情:\n{traceback.format_exc()}")
             return 0
 
     async def _fetch_missing_item_details(self, items_need_detail):
@@ -3658,6 +3621,8 @@ class XianyuLive:
 
                     except Exception as e:
                         logger.error(f"获取单个商品详情异常: {item_info.get('item_id', 'unknown')}, 错误: {self._safe_str(e)}")
+                        import traceback
+                        logger.error(f"获取单个商品详情异常详情:\n{traceback.format_exc()}")
                         return 0
 
             # 并发获取所有商品详情
@@ -3670,11 +3635,15 @@ class XianyuLive:
                     success_count += result
                 elif isinstance(result, Exception):
                     logger.error(f"获取商品详情任务异常: {result}")
+                    import traceback
+                    logger.error(f"获取商品详情任务异常详情:\n{traceback.format_exc()}")
 
             return success_count
 
         except Exception as e:
             logger.error(f"批量获取商品详情异常: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"批量获取商品详情异常详情:\n{traceback.format_exc()}")
             return success_count
 
     async def get_item_info(self, item_id, retry_count=0):
@@ -3763,6 +3732,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"商品信息API请求异常: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"商品信息API请求异常详情:\n{traceback.format_exc()}")
             await asyncio.sleep(0.5)
             return await self.get_item_info(item_id, retry_count + 1)
 
@@ -3851,6 +3822,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"提取商品ID失败: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"提取商品ID失败详情:\n{traceback.format_exc()}")
             return None
 
     def debug_message_structure(self, message, context=""):
@@ -3873,6 +3846,8 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"调试消息结构时发生错误: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"调试消息结构时发生错误详情:\n{traceback.format_exc()}")
 
     async def get_default_reply(self, send_user_name: str, send_user_id: str, send_message: str, chat_id: str, item_id: str = None) -> str:
         """获取默认回复内容，支持指定商品回复、变量替换和只回复一次功能"""
@@ -3898,6 +3873,8 @@ class XianyuLive:
                         return formatted_reply
                     except Exception as format_error:
                         logger.error(f"指定商品回复变量替换失败: {self._safe_str(format_error)}")
+                        import traceback
+                        logger.error(f"指定商品回复变量替换失败详情:\n{traceback.format_exc()}")
                         # 如果变量替换失败，返回原始内容
                         return reply_content
                 else:
@@ -3945,11 +3922,15 @@ class XianyuLive:
                 return formatted_reply
             except Exception as format_error:
                 logger.error(f"默认回复变量替换失败: {self._safe_str(format_error)}")
+                import traceback
+                logger.error(f"默认回复变量替换失败详情:\n{traceback.format_exc()}")
                 # 如果变量替换失败，返回原始内容
                 return reply_content
 
         except Exception as e:
             logger.error(f"获取默认回复失败: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"获取默认回复失败详情:\n{traceback.format_exc()}")
             return None
 
     async def get_keyword_reply(self, send_user_name: str, send_user_id: str, send_message: str, item_id: str = None) -> str:
@@ -3997,6 +3978,8 @@ class XianyuLive:
                                 return formatted_reply
                             except Exception as format_error:
                                 logger.error(f"关键词回复变量替换失败: {self._safe_str(format_error)}")
+                                import traceback
+                                logger.error(f"关键词回复变量替换失败详情:\n{traceback.format_exc()}")
                                 # 如果变量替换失败，返回原始内容
                                 return reply
 
@@ -4171,7 +4154,7 @@ class XianyuLive:
 
             # 生成AI回复
             # 由于外部已实现防抖机制，跳过内部等待（skip_wait=True）
-            reply = ai_reply_engine.generate_reply(
+            reply = await ai_reply_engine.generate_reply(
                 message=send_message,
                 item_info=item_info,
                 chat_id=chat_id,
@@ -4426,7 +4409,9 @@ class XianyuLive:
                         logger.warning(f"钉钉通知发送失败: {response.status}")
 
         except Exception as e:
+            import traceback
             logger.error(f"发送钉钉通知异常: {self._safe_str(e)}")
+            logger.error(f"钉钉通知异常详情:\n{traceback.format_exc()}")
 
     async def _send_feishu_notification(self, config_data: dict, message: str):
         """发送飞书通知"""
@@ -5102,8 +5087,8 @@ class XianyuLive:
         except Exception as e:
             logger.error(f"发送自动发货通知异常: {self._safe_str(e)}")
 
-    async def auto_confirm(self, order_id, item_id=None, retry_count=0):
-        """自动确认发货 - 使用加密模块，不包含延时处理（延时已在_auto_delivery中处理）"""
+    async def auto_confirm(self, order_id, item_id=None, retry_count=0, is_internal_retry=False):
+        """自动确认发货 - 使用加密模块，支持自动Session刷新重试"""
         try:
             logger.warning(f"【{self.cookie_id}】开始确认发货，订单ID: {order_id}")
 
@@ -5132,14 +5117,27 @@ class XianyuLive:
                 self.last_token_refresh_time = secure_confirm.last_token_refresh_time
                 logger.warning(f"【{self.cookie_id}】已同步确认发货模块更新的token")
 
+            # --- 自动Session修复逻辑 ---
+            if result.get('session_expired') and not is_internal_retry:
+                logger.warning(f"【{self.cookie_id}】检测到Session过期，尝试自动刷新Token并重试...")
+                # 触发Token刷新流程，使用 force=True 跳过消息冷却检查
+                new_token = await self.refresh_token(force=True)
+                if new_token:
+                    logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行确认发货重试...")
+                    # 递归调用自身进行重试，标记已重试过，避免死循环
+                    return await self.auto_confirm(order_id, item_id, retry_count=0, is_internal_retry=True)
+                else:
+                    logger.error(f"【{self.cookie_id}】Token刷新未返回新令牌（可能已触发重启或失败），无法继续自动重试")
+                    await self.send_token_refresh_notification(f"自动确认发货由于Token刷新失败而中止: 订单 {order_id}", "auto_confirm_token_fail")
+
             return result
 
         except Exception as e:
             logger.error(f"【{self.cookie_id}】加密确认模块调用失败: {self._safe_str(e)}")
             return {"error": f"加密确认模块调用失败: {self._safe_str(e)}", "order_id": order_id}
 
-    async def auto_freeshipping(self, order_id, item_id, buyer_id, retry_count=0):
-        """自动免拼发货 - 使用解密模块"""
+    async def auto_freeshipping(self, order_id, item_id, buyer_id, retry_count=0, is_internal_retry=False):
+        """自动免拼发货 - 支持自动Session刷新重试"""
         try:
             logger.warning(f"【{self.cookie_id}】开始免拼发货，订单ID: {order_id}")
 
@@ -5155,10 +5153,32 @@ class XianyuLive:
             secure_freeshipping.token_refresh_interval = self.token_refresh_interval
 
             # 调用免拼发货方法
-            return await secure_freeshipping.auto_freeshipping(order_id, item_id, buyer_id, retry_count)
+            result = await secure_freeshipping.auto_freeshipping(order_id, item_id, buyer_id, retry_count)
+            
+            # --- 自动Session修复逻辑 ---
+            if result.get('session_expired') and not is_internal_retry:
+                logger.warning(f"【{self.cookie_id}】检测到免拼发货Session过期，尝试自动刷新Token并重试...")
+                # 触发Token刷新流程，使用 force=True 跳过消息冷却检查
+                new_token = await self.refresh_token(force=True)
+                if new_token:
+                    logger.warning(f"【{self.cookie_id}】Token刷新成功，开始执行免拼发货重试...")
+                    return await self.auto_freeshipping(order_id, item_id, buyer_id, retry_count=0, is_internal_retry=True)
+
+            if result and result.get('success'):
+                # 记录订单已成功发货，避免后续重复尝试
+                self.confirmed_orders[order_id] = time.time()
+                logger.info(f"【{self.cookie_id}】已记录免拼发货成功状态: {order_id}")
+            else:
+                error_msg = result.get('error', '未知错误') if result else '未知错误'
+                logger.error(f"【{self.cookie_id}】自动免拼发货失败: {error_msg}")
+                await self.send_token_refresh_notification(f"自动免拼发货失败: {error_msg} (订单: {order_id})", "auto_freeshipping_fail")
+
+            return result
 
         except Exception as e:
             logger.error(f"【{self.cookie_id}】免拼发货模块调用失败: {self._safe_str(e)}")
+            import traceback
+            logger.error(f"【{self.cookie_id}】异常详情:\n{traceback.format_exc()}")
             return {"error": f"免拼发货模块调用失败: {self._safe_str(e)}", "order_id": order_id}
 
     async def fetch_order_detail_info(self, order_id: str, item_id: str = None, buyer_id: str = None, debug_headless: bool = None, sid: str = None):
@@ -5465,8 +5485,12 @@ class XianyuLive:
                             self.confirmed_orders[order_id] = current_time
                             logger.info(f"🎉 自动确认发货成功！订单ID: {order_id}")
                         else:
-                            logger.warning(f"⚠️ 自动确认发货失败: {confirm_result.get('error', '未知错误')}")
-                            # 即使确认发货失败，也继续发送发货内容
+                            error_msg = confirm_result.get('error', '未知错误')
+                            logger.error(f"❌ 自动确认发货失败: {error_msg}")
+                            await self.send_token_refresh_notification(f"自动确认发货失败: {error_msg} (订单: {order_id})", "auto_confirm_fail")
+                            # 如果确认发货失败（特别是Session过期），停止发送发货内容，避免造成已发货但平台未记录的问题
+                            logger.error(f"【{self.cookie_id}】订单 {order_id} 平台确认发货失败，为了安全起见，停止发送发货内容 (错误: {error_msg})")
+                            return None
 
             # 检查是否存在订单ID，只有存在订单ID才处理发货内容
             if order_id:
@@ -7793,16 +7817,22 @@ class XianyuLive:
                 pass
 
     def is_chat_message(self, message):
-        """判断是否为用户聊天消息"""
+        """判断是否为聊天消息（包括系统卡片消息）"""
         try:
-            return (
-                isinstance(message, dict)
-                and "1" in message
-                and isinstance(message["1"], dict)
-                and "10" in message["1"]
-                and isinstance(message["1"]["10"], dict)
-                and "reminderContent" in message["1"]["10"]
-            )
+            if not isinstance(message, dict):
+                return False
+            
+            # 结构1: 标准聊天消息或卡片消息 (message['1']['10'])
+            if ("1" in message and isinstance(message["1"], dict) and 
+                "10" in message["1"] and isinstance(message["1"]["10"], dict)):
+                return True
+                
+            # 结构2: 简化系统的卡片消息结构 (message['4']['reminderContent'])
+            if ("4" in message and isinstance(message["4"], dict) and 
+                ("reminderContent" in message["4"] or "reminderTitle" in message["4"])):
+                return True
+                
+            return False
         except Exception:
             return False
 
@@ -8492,7 +8522,7 @@ class XianyuLive:
                     return
                 elif red_reminder == '等待卖家发货':
                     user_url = f'https://www.goofish.com/personal?userId={user_id}'
-                    logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] 【系统】交易成功 {user_url} 等待卖家发货')
+                    logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] 【系统】买家已付款 {user_url} 等待卖家发货')
                     
                     # 【关键修复】对于简化结构的消息（message['1']是字符串），根据sid查找订单信息后触发自动发货
                     # 简化消息结构: {'1': '56226853668@goofish', '2': 1, '3': {'redReminder': '等待卖家发货', ...}}
@@ -8572,31 +8602,38 @@ class XianyuLive:
                 logger.warning(f"【{self.cookie_id}】[{msg_id}] ⏹️ 非聊天消息，处理结束")
                 return
 
-            # 处理聊天消息
+            # 处理聊天及系统消息信息提取
             try:
-                # 安全地提取聊天消息信息
-                if not (isinstance(message, dict) and "1" in message and isinstance(message["1"], dict)):
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 消息格式错误：缺少必要的字段结构")
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ⏹️ 处理结束（格式错误）")
+                message_1 = message.get("1")
+                message_4 = message.get("4")
+                
+                # 兼容不同结构的属性提取
+                if isinstance(message_1, dict) and isinstance(message_1.get("10"), dict):
+                    # 结构1 (标准)
+                    message_details = message_1["10"]
+                    create_time = int(message_1.get("5", 0))
+                    chat_id_raw = message_1.get("2", "")
+                elif isinstance(message_4, dict):
+                    # 结构2 (简化系统卡片)
+                    message_details = message_4
+                    create_time = int(message.get("5", 0))
+                    chat_id_raw = message.get("2", "")
+                else:
+                    logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 无法识别的消息结构，停止处理")
                     return
 
-                message_1 = message["1"]
-                if not isinstance(message_1.get("10"), dict):
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 消息格式错误：缺少消息详情字段")
-                    logger.error(f"【{self.cookie_id}】[{msg_id}] ⏹️ 处理结束（缺少详情字段）")
-                    return
+                send_user_name = message_details.get("senderNick", message_details.get("reminderTitle", "未知用户"))
+                send_user_id = message_details.get("senderUserId", "unknown")
+                send_message = message_details.get("reminderContent", "").strip()
+                
+                if not send_message:
+                    # 如果内容为空，尝试使用标题或通知语作为 send_message
+                    send_message = message_details.get("reminderTitle", message_details.get("reminderNotice", ""))
 
-                create_time = int(message_1.get("5", 0))
-                message_10 = message_1["10"]
-                send_user_name = message_10.get("senderNick", message_10.get("reminderTitle", "未知用户"))
-                send_user_id = message_10.get("senderUserId", "unknown")
-                send_message = message_10.get("reminderContent", "")
-
-                chat_id_raw = message_1.get("2", "")
                 chat_id = chat_id_raw.split('@')[0] if '@' in str(chat_id_raw) else str(chat_id_raw)
 
             except Exception as e:
-                logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 提取聊天消息信息失败: {self._safe_str(e)}")
+                logger.error(f"【{self.cookie_id}】[{msg_id}] ❌ 提取消息信息失败: {self._safe_str(e)}")
                 logger.error(f"【{self.cookie_id}】[{msg_id}] ⏹️ 处理结束（提取信息失败）")
                 return
 
@@ -8745,7 +8782,9 @@ class XianyuLive:
                 # 🔔 立即发送消息通知（独立于自动回复功能）
                 # 检查是否为群组消息，如果是群组消息则跳过通知
                 try:
-                    session_type = message_10.get("sessionType", "1")  # 默认为个人消息类型
+                    msg_1 = message.get("1", {}) if isinstance(message, dict) else {}
+                    msg_10 = msg_1.get("10", {}) if isinstance(msg_1, dict) else {}
+                    session_type = msg_10.get("sessionType", "1") if isinstance(msg_10, dict) else "1"
                     if session_type == "30":
                         logger.info(f"📱 检测到群组消息（sessionType=30），跳过消息通知")
                     else:
@@ -8808,6 +8847,15 @@ class XianyuLive:
             elif send_message in [
                 '快给ta一个评价吧~',
                 '快给ta一个评价吧～',
+                '给ta一个评价吧~',
+                '给ta一个评价吧～',
+                '[我完成了评价]',
+                '我完成了评价',
+                '期待你的评价',
+                '[买家确认收货，交易成功]',
+                '[你已确认收货，交易成功]',
+                '买家确认收货，交易成功',
+                '订单已签收'
             ]:
                 # 检测到评价提醒消息，尝试自动好评
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] 🌟 检测到评价提醒消息: {send_message}')
@@ -8819,15 +8867,12 @@ class XianyuLive:
                 'AI正在帮你回复消息，不错过每笔订单',
                 '发来一条消息',
                 '发来一条新消息',
-                '[买家确认收货，交易成功]',
                 '卖家人不错？送Ta闲鱼小红花',
                 '你人真不错，送你闲鱼小红花',
-                '[你已确认收货，交易成功]',
                 '[你已发货]',
                 '已发货',
                 '[注意！小心假客服骗钱！]',
                 '「我将「退货退款」修改为「退款」」',
-                '订单已签收',
                 '有蚂蚁森林能量可领'
             ]:
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】[{msg_id}] ⏹️ 系统消息不处理: {send_message}')
@@ -8904,10 +8949,25 @@ class XianyuLive:
                         result = await self.auto_freeshipping(order_id, item_id, send_user_id)
                         if result.get('success'):
                             logger.info(f'[{msg_time}] 【{self.cookie_id}】✅ 自动免拼发货成功')
+                            # 免拼发货成功后，依然需要调用 _handle_auto_delivery 来发送发货内容
+                            # 由于 auto_freeshipping 内部已将 order_id 存入 self.confirmed_orders，
+                            # 后续流程会自动跳过重复确认动作，仅执行内容提取与发送
+                            await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
+                                                           item_id, chat_id, msg_time, message_data)
                         else:
-                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 自动免拼发货失败: {result.get("error", "未知错误")}')
-                        await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
-                                                       item_id, chat_id, msg_time, message_data)
+                            error_msg = result.get('error', '未知错误')
+                            logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 自动免拼发货失败: {error_msg}')
+                            
+                            # 如果是Session过期导致的失败，不要尝试后续的普通发货，直接中止
+                            # 这样可以防止在未成功确认发货的情况下把虚拟商品内容发给买家
+                            if result.get('session_expired') or "SESSION_EXPIRED" in error_msg or "Session过期" in error_msg:
+                                logger.error(f"【{self.cookie_id}】由于Session过期，中止后续发货流程，请在重新登录后再处理")
+                                return
+                                
+                            # 对于其他非致命错误，尝试使用普通发货流程作为兜底
+                            logger.info(f'[{msg_time}] 【{self.cookie_id}】尝试普通发货流程兜底...')
+                            await self._handle_auto_delivery(websocket, message, send_user_name, send_user_id,
+                                                           item_id, chat_id, msg_time, message_data)
                         return
                     else:
                         logger.info(f'[{msg_time}] 【{self.cookie_id}】收到卡片消息，标题: {card_title or "未知"}')
@@ -9340,7 +9400,7 @@ class XianyuLive:
             self._unregister_instance()
             logger.info(f"【{self.cookie_id}】XianyuLive主程序已完全退出")
 
-    async def get_item_list_info(self, page_number=1, page_size=20, retry_count=0):
+    async def get_item_list_info(self, page_number=1, page_size=20, retry_count=0, is_internal_retry=False):
         """获取商品信息，自动处理token失效的情况
 
         Args:
@@ -9493,12 +9553,17 @@ class XianyuLive:
                         "raw_data": items_data  # 保留原始数据以备调试
                     }
                 else:
-                    # 检查是否是token失效
                     error_msg = res_json.get('ret', [''])[0] if res_json.get('ret') else ''
-                    if 'FAIL_SYS_TOKEN_EXOIRED' in error_msg or 'token' in error_msg.lower():
+                    if 'FAIL_SYS_TOKEN_EXOIRED' in error_msg or 'token' in error_msg.lower() or 'Session过期' in error_msg or 'FAIL_SYS_SESSION_EXPIRED' in error_msg:
+                        if not is_internal_retry:
+                            logger.warning(f"【{self.cookie_id}】检测到Session过期，尝试自动刷新重试: {error_msg}")
+                            new_token = await self.refresh_token()
+                            if new_token:
+                                return await self.get_item_list_info(page_number, page_size, retry_count=0, is_internal_retry=True)
+                        
                         logger.warning(f"Token失效，准备重试: {error_msg}")
                         await asyncio.sleep(0.5)
-                        return await self.get_item_list_info(page_number, page_size, retry_count + 1)
+                        return await self.get_item_list_info(page_number, page_size, retry_count + 1, is_internal_retry=is_internal_retry)
                     else:
                         logger.error(f"获取商品信息失败: {res_json}")
                         return {"error": f"获取商品信息失败: {error_msg}"}
@@ -9506,7 +9571,7 @@ class XianyuLive:
         except Exception as e:
             logger.error(f"商品信息API请求异常: {self._safe_str(e)}")
             await asyncio.sleep(0.5)
-            return await self.get_item_list_info(page_number, page_size, retry_count + 1)
+            return await self.get_item_list_info(page_number, page_size, retry_count + 1, is_internal_retry=is_internal_retry)
 
     async def get_all_items(self, page_size=20, max_pages=None):
         """获取所有商品信息（自动分页）
@@ -9566,8 +9631,8 @@ class XianyuLive:
             "items": all_items
         }
 
-    async def send_image_msg(self, ws, cid, toid, image_url, width=800, height=600, card_id=None):
-        """发送图片消息"""
+    async def send_image_msg(self, ws, cid, toid, image_url, width=800, height=600, card_id=None, is_internal_retry=False):
+        """发送图片消息 - 支持自动Session刷新重试"""
         try:
             # 检查图片URL是否需要上传到CDN
             original_url = image_url
@@ -9606,6 +9671,12 @@ class XianyuLive:
                                 logger.warning(f"【{self.cookie_id}】获取图片尺寸失败，使用默认尺寸: {e}")
                         else:
                             logger.error(f"【{self.cookie_id}】图片上传失败: {local_image_path}")
+                            if not is_internal_retry:
+                                logger.warning(f"【{self.cookie_id}】检测到上传失败，尝试刷新Token重试...")
+                                new_token = await self.refresh_token()
+                                if new_token:
+                                    return await self.send_image_msg(ws, cid, toid, original_url, width, height, card_id, is_internal_retry=True)
+                            
                             logger.error(f"【{self.cookie_id}】❌ Cookie可能已失效！请检查配置并更新Cookie")
                             raise Exception(f"图片上传失败（Cookie可能已失效）: {local_image_path}")
                 else:

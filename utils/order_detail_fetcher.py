@@ -229,14 +229,28 @@ class OrderDetailFetcher:
                         amount_clean = str(amount).replace('¥', '').replace('￥', '').replace('$', '').strip()
                         try:
                             amount_value = float(amount_clean)
-                            amount_valid = amount_value > 0
+                            amount_valid = amount_value >= 0  # 放宽限制：部分商品可能是0元购或显示有差异
                         except (ValueError, TypeError):
                             amount_valid = False
 
-                    if amount_valid:
-                        logger.info(f"📋 订单 {order_id} 已存在于数据库中且金额有效({amount})，直接返回缓存数据")
-                        print(f"✅ 订单 {order_id} 使用缓存数据，跳过浏览器获取")
+                    # 如果金额本身抓不到或者无效，检查是否其他关键字段（如 sku，数量等）存在，如果有，也认为是有效记录，不要盲目重新拉起浏览器
+                    if not amount_valid:
+                         if existing_order.get('quantity') or existing_order.get('spec_name'):
+                             amount_valid = True
+                             logger.info(f"📋 订单 {order_id} 金额虽无效，但存在数量或规格信息，视为有效缓存记录")
 
+                    if amount_valid:
+                        logger.info(f"📋 订单 {order_id} 已存在于数据库中且数据有效(金额:{amount})，直接返回缓存数据")
+                        print(f"✅ 订单 {order_id} 使用缓存数据，跳过浏览器获取")
+                    elif existing_order.get('updated_at') and (time.time() - time.mktime(time.strptime(existing_order['updated_at'], "%Y-%m-%d %H:%M:%S")) < 3600):
+                        # 如果是最近一小时内更新的，即使金额为空也暂时不重新抓取，避免频繁启动浏览器
+                        logger.info(f"📋 订单 {order_id} 最近一小时内刚更新过(金额无效)，跳过浏览器重复获取")
+                        amount_valid = True # 标记为虚拟有效以跳过浏览器
+                    else:
+                        logger.info(f"📋 订单 {order_id} 存在于数据库中但金额无效({amount})且记录较旧，需要重新获取")
+                        print(f"⚠️ 订单 {order_id} 数据无效，重新获取详情...")
+
+                    if amount_valid:
                         # 构建返回格式，与浏览器获取的格式保持一致
                         result = {
                             'order_id': existing_order['order_id'],
@@ -256,10 +270,6 @@ class OrderDetailFetcher:
                             'from_cache': True  # 标记数据来源
                         }
                         return result
-                    else:
-                        logger.info(f"📋 订单 {order_id} 存在于数据库中但金额无效({amount})，需要重新获取")
-                        print(f"⚠️ 订单 {order_id} 金额无效，重新获取详情...")
-
                 # 只有在数据库中没有有效数据时才初始化浏览器
                 logger.info(f"🌐 订单 {order_id} 需要浏览器获取，开始初始化浏览器...")
                 print(f"🔍 订单 {order_id} 开始浏览器获取详情...")
@@ -690,12 +700,19 @@ async def fetch_order_detail_simple(order_id: str, cookie_string: str = None, he
                 amount_clean = str(amount).replace('¥', '').replace('￥', '').replace('$', '').strip()
                 try:
                     amount_value = float(amount_clean)
-                    amount_valid = amount_value > 0
+                    amount_valid = amount_value >= 0
                 except (ValueError, TypeError):
                     amount_valid = False
 
+            # 放宽判断：即使金额不合法，若有规格或数量数据且近期更新过，也使用缓存
+            if not amount_valid:
+                 if existing_order.get('quantity') or existing_order.get('spec_name'):
+                     amount_valid = True
+                 elif existing_order.get('updated_at') and (time.time() - time.mktime(time.strptime(existing_order['updated_at'], "%Y-%m-%d %H:%M:%S")) < 3600):
+                     amount_valid = True
+
             if amount_valid:
-                logger.info(f"📋 订单 {order_id} 已存在于数据库中且金额有效({amount})，直接返回缓存数据")
+                logger.info(f"📋 订单 {order_id} 已存在于数据库中且数据有效({amount})，直接返回缓存数据")
                 print(f"✅ 订单 {order_id} 使用缓存数据，跳过浏览器获取")
 
                 # 构建返回格式
@@ -719,8 +736,8 @@ async def fetch_order_detail_simple(order_id: str, cookie_string: str = None, he
                 }
                 return result
             else:
-                logger.info(f"📋 订单 {order_id} 存在于数据库中但金额无效({amount})，需要重新获取")
-                print(f"⚠️ 订单 {order_id} 金额无效，重新获取详情...")
+                logger.info(f"📋 订单 {order_id} 存在于数据库中但数据无效({amount})，需要重新获取")
+                print(f"⚠️ 订单 {order_id} 数据无效，重新获取详情...")
     except Exception as e:
         logger.warning(f"检查数据库缓存失败: {e}")
 

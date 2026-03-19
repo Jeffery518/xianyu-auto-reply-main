@@ -1369,9 +1369,18 @@ class XianyuSliderStealth:
             page_title = self.page.title()
             logger.info(f"【{self.pure_user_id}】当前页面标题: {page_title}")
             
-            # 等待一下确保cookie完全更新
-            time.sleep(1)
+            # 等待更长的时间，确保风控相关的 Cookie（如 x5sec）被生成
+            logger.info(f"【{self.pure_user_id}】等待 3 秒以确保 x5sec 等风控 Cookie 更新...")
+            time.sleep(3)
             
+            # 尝试触发一次轻量级请求或刷新，确保证书/Cookie被正确更新下发（部分风控需要页面有互动才给完整Cookie）
+            try:
+                # 简单刷新页面或者检查一下状态，促使闲鱼重新颁发有效 x5sec
+                self.page.reload(wait_until="domcontentloaded", timeout=15000)
+                time.sleep(2)
+            except Exception as e:
+                logger.debug(f"【{self.pure_user_id}】重新加载页面以获取Cookie时出错 (可忽略): {e}")
+
             # 获取浏览器中的所有cookie
             cookies = self.context.cookies()
             
@@ -4767,6 +4776,10 @@ class XianyuSliderStealth:
                                 logger.error(f"【{self.pure_user_id}】❌ 页面刷新失败: {e}")
                                 return None
                     
+                    # 为了确保阿里霸下盾等风控验证状态稳定并且 Cookie (如 x5sec) 发放完毕，在最后一次刷新或操作后多等一会
+                    logger.info(f"【{self.pure_user_id}】等待风控 Cookie 生成中...")
+                    time.sleep(3)
+
                     # 检查登录状态
                     logger.info(f"【{self.pure_user_id}】等待1秒后检查登录状态...")
                     time.sleep(1)
@@ -5064,6 +5077,14 @@ class XianyuSliderStealth:
                         logger.error(f"【{self.pure_user_id}】❌ 登录未成功，无法获取Cookie")
                         return None
                     
+                    # 获取Cookie之前，为了保证类似 x5sec 等风控cookie有效，可以尝试一次页面刷新和等待
+                    logger.info(f"【{self.pure_user_id}】准备获取最终Cookie前，刷新页面以确保证书和Cookie新鲜...")
+                    try:
+                        page.reload(wait_until="domcontentloaded", timeout=15000)
+                        time.sleep(3)
+                    except Exception as e:
+                        logger.debug(f"【{self.pure_user_id}】最终获取Cookie前刷新页面出错 (可忽略): {e}")
+
                     # 获取Cookie
                     logger.info(f"【{self.pure_user_id}】等待1秒后获取Cookie...")
                     time.sleep(1)

@@ -439,7 +439,6 @@ if sys.platform.startswith('linux'):
 from config import AUTO_REPLY, COOKIES_LIST
 import cookie_manager as cm
 from db_manager import db_manager
-from file_log_collector import setup_file_logging
 from usage_statistics import report_user_count
 
 
@@ -513,10 +512,6 @@ def load_keywords_file(path: str):
 async def main():
     print("开始启动主程序...")
 
-    # 初始化文件日志收集器
-    print("初始化文件日志收集器...")
-    setup_file_logging()
-    logger.info("文件日志收集器已启动，开始收集实时日志")
 
     loop = asyncio.get_running_loop()
 

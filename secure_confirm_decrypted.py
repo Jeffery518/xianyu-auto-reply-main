@@ -165,11 +165,20 @@ class SecureConfirm:
                     error_msg = res_json.get('ret', ['未知错误'])[0] if res_json.get('ret') else '未知错误'
                     logger.warning(f"【{self.cookie_id}】❌ 自动确认发货失败: {error_msg}")
 
+                    # 检查是否为Session过期，避免无效重试
+                    error_str = str(error_msg).upper()
+                    if "SESSION_EXPIRED" in error_str or "SESSION过期" in error_str or "过期" in error_str:
+                        logger.error(f"【{self.cookie_id}】检测到Session过期，标记session_expired以便上层触发刷新Token机制")
+                        return {"success": False, "error": error_msg, "session_expired": True}
+
                     return await self.auto_confirm(order_id, item_id, retry_count + 1)
 
 
         except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
             logger.error(f"【{self.cookie_id}】自动确认发货API请求异常: {self._safe_str(e)}")
+            logger.error(f"【{self.cookie_id}】异常详情:\n{error_detail}")
             await asyncio.sleep(0.5)
 
             # 网络异常也进行重试
@@ -177,4 +186,4 @@ class SecureConfirm:
                 logger.info(f"【{self.cookie_id}】网络异常，准备重试...")
                 return await self.auto_confirm(order_id, item_id, retry_count + 1)
 
-            return {"error": f"网络异常: {self._safe_str(e)}", "order_id": order_id}
+            return {"error": f"网络异常: {self._safe_str(e)}", "order_id": order_id, "traceback": error_detail}
