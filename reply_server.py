@@ -13,14 +13,12 @@ import json
 import os
 import re
 import uvicorn
-import pandas as pd
 import io
 import asyncio
 from collections import defaultdict
 
 import cookie_manager
 from db_manager import db_manager
-from file_log_collector import setup_file_logging, get_file_log_collector
 from ai_reply_engine import ai_reply_engine
 from utils.qr_login import qr_login_manager
 from utils.xianyu_utils import trans_cookies
@@ -653,12 +651,9 @@ if CAPTCHA_ROUTER_AVAILABLE:
 else:
     logger.warning("⚠️ 刮刮乐远程控制路由未注册")
 
-# 初始化文件日志收集器
-setup_file_logging()
-
 # 添加一条测试日志
 from loguru import logger
-logger.info("Web服务器启动，文件日志收集器已初始化")
+logger.info("Web服务器启动")
 
 # 添加请求日志中间件
 @app.middleware("http")
@@ -1160,127 +1155,6 @@ async def logout(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
     return {"message": "已登出"}
 
 
-# ========================= 防暴力破解管理API =========================
-
-@app.get('/admin/security/login-stats')
-async def get_login_security_stats(admin_user: Dict[str, Any] = Depends(verify_admin_token)):
-    """获取登录安全统计信息（仅管理员）"""
-    current_time = time.time()
-    
-    # 统计IP封禁信息
-    blocked_ips = []
-    for ip, data in login_ip_tracker.items():
-        if data.get('blocked_until', 0) > current_time:
-            blocked_ips.append({
-                'ip': ip,
-                'attempts': data.get('attempts', 0),
-                'blocked_until': data.get('blocked_until', 0),
-                'remaining_seconds': int(data['blocked_until'] - current_time)
-            })
-    
-    # 统计用户锁定信息
-    locked_users = []
-    for username, data in login_user_tracker.items():
-        if data.get('locked_until', 0) > current_time:
-            locked_users.append({
-                'username': username,
-                'attempts': data.get('attempts', 0),
-                'locked_until': data.get('locked_until', 0),
-                'remaining_seconds': int(data['locked_until'] - current_time)
-            })
-    
-    # 最近失败的IP
-    recent_failed_ips = []
-    for ip, data in login_ip_tracker.items():
-        if data.get('attempts', 0) > 0:
-            recent_failed_ips.append({
-                'ip': ip,
-                'attempts': data.get('attempts', 0),
-                'last_attempt': data.get('last_attempt', 0)
-            })
-    recent_failed_ips.sort(key=lambda x: x['last_attempt'], reverse=True)
-    
-    return {
-        'success': True,
-        'data': {
-            'blocked_ips': blocked_ips,
-            'blocked_ip_count': len(blocked_ips),
-            'locked_users': locked_users,
-            'locked_user_count': len(locked_users),
-            'blacklisted_ips': list(ip_blacklist),
-            'blacklist_count': len(ip_blacklist),
-            'recent_failed_ips': recent_failed_ips[:20],  # 最近20个
-            'config': BRUTE_FORCE_CONFIG
-        }
-    }
-
-
-@app.post('/admin/security/unblock-ip/{ip}')
-async def unblock_ip(ip: str, admin_user: Dict[str, Any] = Depends(verify_admin_token)):
-    """解除IP封禁（仅管理员）"""
-    unblocked = False
-    
-    # 从临时封禁中移除
-    if ip in login_ip_tracker:
-        login_ip_tracker[ip]['blocked_until'] = 0
-        login_ip_tracker[ip]['attempts'] = 0
-        unblocked = True
-        logger.info(f"🔓 管理员 {admin_user['username']} 解除了IP {ip} 的临时封禁")
-    
-    # 从永久黑名单中移除
-    if ip in ip_blacklist:
-        ip_blacklist.discard(ip)
-        unblocked = True
-        logger.info(f"🔓 管理员 {admin_user['username']} 将IP {ip} 从永久黑名单中移除")
-    
-    if unblocked:
-        return {'success': True, 'message': f'IP {ip} 已解除封禁'}
-    else:
-        return {'success': False, 'message': f'IP {ip} 未在封禁列表中'}
-
-
-@app.post('/admin/security/unlock-user/{username}')
-async def unlock_user(username: str, admin_user: Dict[str, Any] = Depends(verify_admin_token)):
-    """解除用户锁定（仅管理员）"""
-    if username in login_user_tracker:
-        login_user_tracker[username]['locked_until'] = 0
-        login_user_tracker[username]['attempts'] = 0
-        logger.info(f"🔓 管理员 {admin_user['username']} 解除了用户 {username} 的锁定")
-        return {'success': True, 'message': f'用户 {username} 已解除锁定'}
-    else:
-        return {'success': False, 'message': f'用户 {username} 未在锁定列表中'}
-
-
-@app.post('/admin/security/blacklist-ip/{ip}')
-async def add_ip_to_blacklist(ip: str, admin_user: Dict[str, Any] = Depends(verify_admin_token)):
-    """将IP加入永久黑名单（仅管理员）"""
-    ip_blacklist.add(ip)
-    logger.warning(f"⛔ 管理员 {admin_user['username']} 将IP {ip} 加入永久黑名单")
-    return {'success': True, 'message': f'IP {ip} 已加入永久黑名单'}
-
-
-@app.post('/admin/security/update-config')
-async def update_brute_force_config(
-    config: Dict[str, Any],
-    admin_user: Dict[str, Any] = Depends(verify_admin_token)
-):
-    """更新防暴力破解配置（仅管理员）"""
-    valid_keys = set(BRUTE_FORCE_CONFIG.keys())
-    updated = []
-    
-    for key, value in config.items():
-        if key in valid_keys and isinstance(value, (int, float)):
-            BRUTE_FORCE_CONFIG[key] = value
-            updated.append(key)
-    
-    if updated:
-        logger.info(f"⚙️ 管理员 {admin_user['username']} 更新了防暴力破解配置: {updated}")
-        return {'success': True, 'message': f'已更新配置: {updated}', 'config': BRUTE_FORCE_CONFIG}
-    else:
-        return {'success': False, 'message': '没有有效的配置项被更新'}
-
-
-# ========================= 防暴力破解管理API结束 =========================
 
 
 # 修改管理员密码接口
@@ -4170,56 +4044,62 @@ def export_keywords(cid: str, current_user: Dict[str, Any] = Depends(get_current
         # 获取关键词数据（包含类型信息）
         keywords = db_manager.get_keywords_with_type(cid)
 
-        # 创建DataFrame，只导出文本类型的关键词
-        data = []
+        # 创建Excel工作簿
+        import openpyxl
+        from openpyxl.styles import PatternFill
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "关键词数据"
+
+        # 写入表头
+        headers = ['关键词', '商品ID', '关键词内容']
+        for col, header in enumerate(headers, 1):
+            ws.cell(row=1, column=col, value=header)
+
+        # 准备数据
+        data_rows = []
         for keyword_data in keywords:
             # 只导出文本类型的关键词
             if keyword_data.get('type', 'text') == 'text':
-                data.append({
-                    '关键词': keyword_data['keyword'],
-                    '商品ID': keyword_data['item_id'] or '',
-                    '关键词内容': keyword_data['reply']
-                })
+                data_rows.append([
+                    keyword_data['keyword'],
+                    keyword_data['item_id'] or '',
+                    keyword_data['reply']
+                ])
 
-        # 如果没有数据，创建空的DataFrame但保留列名（作为模板）
-        if not data:
-            df = pd.DataFrame(columns=['关键词', '商品ID', '关键词内容'])
+        if data_rows:
+            # 写入实际数据
+            for row_idx, row_data in enumerate(data_rows, 2):
+                for col_idx, value in enumerate(row_data, 1):
+                    ws.cell(row=row_idx, column=col_idx, value=value)
         else:
-            df = pd.DataFrame(data)
-
-        # 创建Excel文件
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='关键词数据', index=False)
-
             # 如果是空模板，添加一些示例说明
-            if data == []:
-                worksheet = writer.sheets['关键词数据']
-                # 添加示例数据作为注释（从第2行开始）
-                worksheet['A2'] = '你好'
-                worksheet['B2'] = ''
-                worksheet['C2'] = '您好！欢迎咨询，有什么可以帮助您的吗？'
+            ws.cell(row=2, column=1, value='你好')
+            ws.cell(row=2, column=2, value='')
+            ws.cell(row=2, column=3, value='您好！欢迎咨询，有什么可以帮助您的吗？')
 
-                worksheet['A3'] = '价格'
-                worksheet['B3'] = '123456'
-                worksheet['C3'] = '这个商品的价格是99元，现在有优惠活动哦！'
+            ws.cell(row=3, column=1, value='价格')
+            ws.cell(row=3, column=2, value='123456')
+            ws.cell(row=3, column=3, value='这个商品的价格是99元，现在有优惠活动哦！')
 
-                worksheet['A4'] = '发货'
-                worksheet['B4'] = ''
-                worksheet['C4'] = '我们会在24小时内发货，请耐心等待。'
+            ws.cell(row=4, column=1, value='发货')
+            ws.cell(row=4, column=2, value='')
+            ws.cell(row=4, column=3, value='我们会在24小时内发货，请耐心等待。')
 
-                # 设置示例行的样式（浅灰色背景）
-                from openpyxl.styles import PatternFill
-                gray_fill = PatternFill(start_color='F0F0F0', end_color='F0F0F0', fill_type='solid')
-                for row in range(2, 5):
-                    for col in range(1, 4):
-                        worksheet.cell(row=row, column=col).fill = gray_fill
+            # 设置示例行的样式（浅灰色背景）
+            gray_fill = PatternFill(start_color='F0F0F0', end_color='F0F0F0', fill_type='solid')
+            for row in range(2, 5):
+                for col in range(1, 4):
+                    ws.cell(row=row, column=col).fill = gray_fill
 
+        # 保存到内存
+        output = io.BytesIO()
+        wb.save(output)
         output.seek(0)
 
         # 生成文件名（使用URL编码处理中文）
         from urllib.parse import quote
-        if not data:
+        if not data_rows:
             filename = f"keywords_template_{cid}_{int(time.time())}.xlsx"
         else:
             filename = f"keywords_{cid}_{int(time.time())}.xlsx"
@@ -4227,7 +4107,7 @@ def export_keywords(cid: str, current_user: Dict[str, Any] = Depends(get_current
 
         # 返回文件
         return StreamingResponse(
-            io.BytesIO(output.read()),
+            output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
                 "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
@@ -4254,19 +4134,29 @@ async def import_keywords(cid: str, file: UploadFile = File(...), current_user: 
         raise HTTPException(status_code=403, detail="无权限访问该Cookie")
 
     # 检查文件类型
-    if not file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="请上传Excel文件(.xlsx或.xls)")
+    if not file.filename.endswith('.xlsx'):
+        raise HTTPException(status_code=400, detail="请上传Excel文件(.xlsx)")
 
     try:
         # 读取Excel文件
+        import openpyxl
         contents = await file.read()
-        df = pd.read_excel(io.BytesIO(contents))
+        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+        ws = wb.active
 
-        # 检查必要的列
+        # 获取表头并建立映射
+        headers = []
+        for cell in ws[1]:
+            val = str(cell.value).strip() if cell.value is not None else ""
+            headers.append(val)
+
         required_columns = ['关键词', '商品ID', '关键词内容']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            raise HTTPException(status_code=400, detail=f"Excel文件缺少必要的列: {', '.join(missing_columns)}")
+        col_map = {}
+        for req in required_columns:
+            if req in headers:
+                col_map[req] = headers.index(req) + 1
+            else:
+                raise HTTPException(status_code=400, detail=f"Excel文件缺少必要的列: {req}")
 
         # 获取现有的文本类型关键词（用于比较更新/新增）
         existing_keywords = db_manager.get_keywords_with_type(cid)
@@ -4285,21 +4175,27 @@ async def import_keywords(cid: str, file: UploadFile = File(...), current_user: 
         update_count = 0
         add_count = 0
 
-        for index, row in df.iterrows():
-            keyword = str(row['关键词']).strip()
-            item_id = str(row['商品ID']).strip() if pd.notna(row['商品ID']) and str(row['商品ID']).strip() else None
-            reply = str(row['关键词内容']).strip()
+        # 迭代每一行（从第二行开始）
+        for row_idx in range(2, ws.max_row + 1):
+            keyword_cell = ws.cell(row=row_idx, column=col_map['关键词']).value
+            item_id_cell = ws.cell(row=row_idx, column=col_map['商品ID']).value
+            reply_cell = ws.cell(row=row_idx, column=col_map['关键词内容']).value
+
+            if keyword_cell is None:
+                continue
+
+            keyword = str(keyword_cell).strip()
+            item_id = str(item_id_cell).strip() if item_id_cell is not None and str(item_id_cell).strip() else None
+            reply = str(reply_cell).strip() if reply_cell is not None else ""
 
             if not keyword:
-                continue  # 跳过没有关键词的行
+                continue
 
             # 检查是否重复
             key = f"{keyword}|{item_id or ''}"
             if key in existing_dict:
-                # 更新现有关键词
                 update_count += 1
             else:
-                # 新增关键词
                 add_count += 1
 
             import_data.append((keyword, reply, item_id))
@@ -4321,10 +4217,8 @@ async def import_keywords(cid: str, file: UploadFile = File(...), current_user: 
             "updated": update_count
         }
 
-    except pd.errors.EmptyDataError:
-        raise HTTPException(status_code=400, detail="Excel文件为空")
-    except pd.errors.ParserError:
-        raise HTTPException(status_code=400, detail="Excel文件格式错误")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"导入关键词失败: {e}")
         raise HTTPException(status_code=500, detail=f"导入关键词失败: {str(e)}")
@@ -4586,32 +4480,6 @@ def delete_keyword_by_index(cid: str, index: int, current_user: Dict[str, Any] =
         raise HTTPException(status_code=500, detail=f"删除关键词失败: {str(e)}")
 
 
-@app.get("/debug/keywords-table-info")
-def debug_keywords_table_info(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """调试：检查keywords表结构"""
-    try:
-        import sqlite3
-        conn = sqlite3.connect(db_manager.db_path)
-        cursor = conn.cursor()
-
-        # 获取表结构信息
-        cursor.execute("PRAGMA table_info(keywords)")
-        columns = cursor.fetchall()
-
-        # 获取数据库版本
-        cursor.execute("SELECT value FROM system_settings WHERE key = 'db_version'")
-        version_result = cursor.fetchone()
-        db_version = version_result[0] if version_result else "未知"
-
-        conn.close()
-
-        return {
-            "db_version": db_version,
-            "table_columns": [{"name": col[1], "type": col[2], "default": col[4]} for col in columns]
-        }
-    except Exception as e:
-        logger.error(f"检查表结构失败: {e}")
-        raise HTTPException(status_code=500, detail=f"检查表结构失败: {str(e)}")
 
 
 # 卡券管理API
@@ -5412,106 +5280,6 @@ async def test_ai_reply(cookie_id: str, test_data: dict, current_user: Dict[str,
         raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
 
 
-# ==================== 日志管理API ====================
-
-@app.get("/logs")
-async def get_logs(lines: int = 200, level: str = None, source: str = None, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """获取实时系统日志"""
-    try:
-        # 获取文件日志收集器
-        collector = get_file_log_collector()
-
-        # 获取日志
-        logs = collector.get_logs(lines=lines, level_filter=level, source_filter=source)
-
-        return {"success": True, "logs": logs}
-
-    except Exception as e:
-        return {"success": False, "message": f"获取日志失败: {str(e)}", "logs": []}
-
-
-@app.get("/risk-control-logs")
-async def get_risk_control_logs(
-    cookie_id: str = None,
-    limit: int = 100,
-    offset: int = 0,
-    admin_user: Dict[str, Any] = Depends(require_admin)
-):
-    """获取风控日志（管理员专用）"""
-    try:
-        log_with_user('info', f"查询风控日志: cookie_id={cookie_id}, limit={limit}, offset={offset}", admin_user)
-
-        # 获取风控日志
-        logs = db_manager.get_risk_control_logs(cookie_id=cookie_id, limit=limit, offset=offset)
-        total_count = db_manager.get_risk_control_logs_count(cookie_id=cookie_id)
-
-        log_with_user('info', f"风控日志查询成功，共 {len(logs)} 条记录，总计 {total_count} 条", admin_user)
-
-        return {
-            "success": True,
-            "data": logs,
-            "total": total_count,
-            "limit": limit,
-            "offset": offset
-        }
-
-    except Exception as e:
-        log_with_user('error', f"获取风控日志失败: {str(e)}", admin_user)
-        return {
-            "success": False,
-            "message": f"获取风控日志失败: {str(e)}",
-            "data": [],
-            "total": 0
-        }
-
-
-@app.delete("/admin/risk-control-logs/{log_id}")
-async def delete_risk_control_log(
-    log_id: int,
-    admin_user: Dict[str, Any] = Depends(require_admin)
-):
-    """删除风控日志记录（管理员专用）"""
-    try:
-        log_with_user('info', f"删除风控日志记录: {log_id}", admin_user)
-
-        success = db_manager.delete_risk_control_log(log_id)
-
-        if success:
-            log_with_user('info', f"风控日志删除成功: {log_id}", admin_user)
-            return {"success": True, "message": "删除成功"}
-        else:
-            log_with_user('warning', f"风控日志删除失败: {log_id}", admin_user)
-            return {"success": False, "message": "删除失败，记录可能不存在"}
-
-    except Exception as e:
-        log_with_user('error', f"删除风控日志失败: {log_id} - {str(e)}", admin_user)
-        return {"success": False, "message": f"删除失败: {str(e)}"}
-
-
-@app.get("/logs/stats")
-async def get_log_stats(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """获取日志统计信息"""
-    try:
-        collector = get_file_log_collector()
-        stats = collector.get_stats()
-
-        return {"success": True, "stats": stats}
-
-    except Exception as e:
-        return {"success": False, "message": f"获取日志统计失败: {str(e)}", "stats": {}}
-
-
-@app.post("/logs/clear")
-async def clear_logs(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """清空日志"""
-    try:
-        collector = get_file_log_collector()
-        collector.clear_logs()
-
-        return {"success": True, "message": "日志已清空"}
-
-    except Exception as e:
-        return {"success": False, "message": f"清空日志失败: {str(e)}"}
 
 
 # ==================== 商品管理API ====================
@@ -5976,52 +5744,6 @@ def export_log_file(file: str, admin_user: Dict[str, Any] = Depends(require_admi
         log_with_user('error', f"导出日志文件失败: {str(e)}", admin_user)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get('/admin/stats')
-def get_system_stats(admin_user: Dict[str, Any] = Depends(require_admin)):
-    """获取系统统计信息（管理员专用）"""
-    from db_manager import db_manager
-    try:
-        log_with_user('info', "查询系统统计信息", admin_user)
-
-        stats = {
-            "users": {
-                "total": 0,
-                "active_today": 0
-            },
-            "cookies": {
-                "total": 0,
-                "enabled": 0
-            },
-            "cards": {
-                "total": 0,
-                "enabled": 0
-            },
-            "system": {
-                "uptime": "未知",
-                "version": "1.0.0"
-            }
-        }
-
-        # 用户统计
-        all_users = db_manager.get_all_users()
-        stats["users"]["total"] = len(all_users)
-
-        # Cookie统计
-        all_cookies = db_manager.get_all_cookies()
-        stats["cookies"]["total"] = len(all_cookies)
-
-        # 卡券统计
-        all_cards = db_manager.get_all_cards()
-        if all_cards:
-            stats["cards"]["total"] = len(all_cards)
-            stats["cards"]["enabled"] = len([card for card in all_cards if card.get('enabled', True)])
-
-        log_with_user('info', "系统统计信息查询完成", admin_user)
-        return stats
-
-    except Exception as e:
-        log_with_user('error', f"获取系统统计信息失败: {str(e)}", admin_user)
-        raise HTTPException(status_code=500, detail=str(e))
 
 # ------------------------- 指定商品回复接口 -------------------------
 
@@ -6323,46 +6045,6 @@ async def upload_database_backup(admin_user: Dict[str, Any] = Depends(require_ad
             os.remove(temp_file_path)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get('/admin/backup/list')
-def list_backup_files(admin_user: Dict[str, Any] = Depends(require_admin)):
-    """列出服务器上的备份文件（管理员专用）"""
-    import os
-    import glob
-    from datetime import datetime
-
-    try:
-        log_with_user('info', "查询备份文件列表", admin_user)
-
-        # 查找备份文件（在data目录中）
-        backup_files = glob.glob("data/xianyu_data_backup_*.db")
-
-        backup_list = []
-        for file_path in backup_files:
-            try:
-                stat = os.stat(file_path)
-                backup_list.append({
-                    'filename': os.path.basename(file_path),
-                    'size': stat.st_size,
-                    'size_mb': round(stat.st_size / (1024 * 1024), 2),
-                    'created_time': datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
-                    'modified_time': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-                })
-            except Exception as e:
-                log_with_user('warning', f"读取备份文件信息失败: {file_path} - {str(e)}", admin_user)
-
-        # 按修改时间倒序排列
-        backup_list.sort(key=lambda x: x['modified_time'], reverse=True)
-
-        log_with_user('info', f"找到 {len(backup_list)} 个备份文件", admin_user)
-
-        return {
-            "backups": backup_list,
-            "total": len(backup_list)
-        }
-
-    except Exception as e:
-        log_with_user('error', f"查询备份文件列表失败: {str(e)}", admin_user)
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ------------------------- 数据管理接口 -------------------------
@@ -6628,396 +6310,6 @@ def get_user_orders(current_user: Dict[str, Any] = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"查询订单失败: {str(e)}")
 
 
-# ==================== 自动更新接口 ====================
-
-from auto_updater import get_updater, UpdateStatus, init_updater
-from pydantic import BaseModel as PydanticBaseModel
-
-class UpdateCheckResponse(PydanticBaseModel):
-    """更新检查响应"""
-    has_update: bool
-    current_version: str
-    new_version: str = ""
-    description: str = ""
-    changelog: list = []
-    files_count: int = 0
-    total_size: int = 0
-    release_date: str = ""
-
-
-class UpdateProgressResponse(PydanticBaseModel):
-    """更新进度响应"""
-    status: str
-    current_file: str = ""
-    current_index: int = 0
-    total_files: int = 0
-    downloaded_bytes: int = 0
-    total_bytes: int = 0
-    message: str = ""
-    error: str = ""
-
-
-class UpdateResultResponse(PydanticBaseModel):
-    """更新结果响应"""
-    success: bool
-    message: str
-    updated_files: list = []
-    needs_restart: bool = False
-    new_version: str = ""
-
-
-@app.get('/api/update/check')
-async def check_for_updates(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    检查是否有可用更新
-    
-    返回更新信息，包括新版本号、更新内容等
-    """
-    try:
-        updater = get_updater()
-        manifest = await updater.check_for_updates()
-        
-        if manifest is None:
-            return {
-                "success": True,
-                "data": {
-                    "has_update": False,
-                    "current_version": updater.current_version,
-                    "message": "已是最新版本"
-                }
-            }
-        
-        # 获取需要更新的文件
-        files_to_update = await updater.get_files_to_update(manifest)
-        total_size = sum(f.size for f in files_to_update)
-        
-        return {
-            "success": True,
-            "data": {
-                "has_update": True,
-                "current_version": updater.current_version,
-                "new_version": manifest.version,
-                "description": manifest.description,
-                "changelog": manifest.changelog or [],
-                "files_count": len(files_to_update),
-                "total_size": total_size,
-                "release_date": manifest.release_date,
-                "files": [
-                    {
-                        "path": f.path,
-                        "size": f.size,
-                        "requires_restart": f.requires_restart,
-                        "description": f.description
-                    }
-                    for f in files_to_update
-                ]
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"检查更新失败: {e}")
-        return {
-            "success": False,
-            "message": f"检查更新失败: {str(e)}"
-        }
-
-
-@app.post('/api/update/apply')
-async def apply_updates(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    应用更新
-    
-    下载并安装所有可用更新
-    """
-    try:
-        # 只允许管理员执行更新（检查username是否为admin）
-        if current_user.get('username') != 'admin':
-            raise HTTPException(status_code=403, detail="只有管理员可以执行更新")
-        
-        updater = get_updater()
-        
-        log_with_user('info', "开始执行自动更新", current_user)
-        
-        result = await updater.perform_update()
-        
-        if result["success"]:
-            log_with_user('info', f"更新完成: {result['message']}", current_user)
-        else:
-            log_with_user('error', f"更新失败: {result['message']}", current_user)
-        
-        return {
-            "success": result["success"],
-            "data": result
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"应用更新失败: {e}")
-        return {
-            "success": False,
-            "message": f"应用更新失败: {str(e)}"
-        }
-
-
-@app.get('/api/update/progress')
-async def get_update_progress(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    获取更新进度
-    
-    返回当前更新状态和进度信息
-    """
-    try:
-        updater = get_updater()
-        progress = updater.progress
-        
-        return {
-            "success": True,
-            "data": {
-                "status": progress.status.value,
-                "current_file": progress.current_file,
-                "current_index": progress.current_index,
-                "total_files": progress.total_files,
-                "downloaded_bytes": progress.downloaded_bytes,
-                "total_bytes": progress.total_bytes,
-                "message": progress.message,
-                "error": progress.error
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"获取更新进度失败: {e}")
-        return {
-            "success": False,
-            "message": f"获取更新进度失败: {str(e)}"
-        }
-
-
-@app.get('/api/update/local-hashes')
-async def get_local_file_hashes(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    获取本地文件哈希值
-    
-    用于服务端比对哪些文件需要更新
-    """
-    try:
-        # 只允许管理员查看（检查username是否为admin）
-        if current_user.get('username') != 'admin':
-            raise HTTPException(status_code=403, detail="只有管理员可以查看文件哈希")
-        
-        updater = get_updater()
-        hashes = updater.get_local_file_hashes()
-        
-        return {
-            "success": True,
-            "data": {
-                "version": updater.current_version,
-                "files": hashes,
-                "count": len(hashes)
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取文件哈希失败: {e}")
-        return {
-            "success": False,
-            "message": f"获取文件哈希失败: {str(e)}"
-        }
-
-
-@app.post('/api/update/cleanup-backups')
-async def cleanup_old_backups(days: int = 7, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    清理旧的备份文件
-    
-    Args:
-        days: 保留天数，默认7天
-    """
-    try:
-        # 只允许管理员执行（检查username是否为admin）
-        if current_user.get('username') != 'admin':
-            raise HTTPException(status_code=403, detail="只有管理员可以清理备份")
-        
-        updater = get_updater()
-        updater.cleanup_old_backups(keep_days=days)
-        
-        log_with_user('info', f"清理了 {days} 天前的备份文件", current_user)
-        
-        return {
-            "success": True,
-            "message": f"已清理 {days} 天前的备份文件"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"清理备份失败: {e}")
-        return {
-            "success": False,
-            "message": f"清理备份失败: {str(e)}"
-        }
-
-
-@app.get('/api/update/file-changes')
-async def get_file_changes(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    比较当前文件与上次更新后的哈希清单
-    
-    用于检测哪些文件在更新后被本地修改过
-    """
-    try:
-        # 只允许管理员查看
-        if current_user.get('username') != 'admin':
-            raise HTTPException(status_code=403, detail="只有管理员可以查看文件变化")
-        
-        updater = get_updater()
-        result = updater.compare_file_hashes()
-        
-        return {
-            "success": True,
-            "data": result
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"比较文件变化失败: {e}")
-        return {
-            "success": False,
-            "message": f"比较文件变化失败: {str(e)}"
-        }
-
-
-@app.post('/api/update/save-hashes')
-async def save_current_hashes(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    手动保存当前文件的哈希清单
-    
-    用于记录当前状态，以便以后比较
-    """
-    try:
-        # 只允许管理员执行
-        if current_user.get('username') != 'admin':
-            raise HTTPException(status_code=403, detail="只有管理员可以保存哈希清单")
-        
-        updater = get_updater()
-        updater.save_file_hashes(updater.current_version)
-        
-        log_with_user('info', "手动保存文件哈希清单", current_user)
-        
-        return {
-            "success": True,
-            "message": "文件哈希清单已保存"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"保存哈希清单失败: {e}")
-        return {
-            "success": False,
-            "message": f"保存哈希清单失败: {str(e)}"
-        }
-
-
-@app.get('/api/update/saved-hashes')
-async def get_saved_hashes(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    获取上次保存的文件哈希清单
-    """
-    try:
-        # 只允许管理员查看
-        if current_user.get('username') != 'admin':
-            raise HTTPException(status_code=403, detail="只有管理员可以查看哈希清单")
-        
-        updater = get_updater()
-        saved_hashes = updater.load_file_hashes()
-        
-        if saved_hashes is None:
-            return {
-                "success": True,
-                "data": None,
-                "message": "没有保存的哈希清单"
-            }
-        
-        return {
-            "success": True,
-            "data": {
-                "version": saved_hashes.get("version"),
-                "updated_at": saved_hashes.get("updated_at"),
-                "total_files": saved_hashes.get("total_files"),
-                "last_updated_files": saved_hashes.get("last_updated_files", []),
-                "last_updated_count": saved_hashes.get("last_updated_count", 0)
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取哈希清单失败: {e}")
-        return {
-            "success": False,
-            "message": f"获取哈希清单失败: {str(e)}"
-        }
-
-
-@app.post('/api/update/restart')
-async def restart_application(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """
-    重启应用（用于更新后重启）
-    
-    注意：此操作会重启整个应用
-    """
-    try:
-        # 只允许管理员执行（检查username是否为admin）
-        if current_user.get('username') != 'admin':
-            raise HTTPException(status_code=403, detail="只有管理员可以重启应用")
-        
-        log_with_user('info', "用户请求重启应用", current_user)
-        
-        import subprocess
-        import sys
-        
-        # 返回响应后异步重启
-        async def delayed_restart():
-            await asyncio.sleep(2)  # 等待2秒让响应返回
-            logger.info("正在重启应用...")
-            
-            # 获取当前Python解释器和脚本路径
-            python = sys.executable
-            script = sys.argv[0]
-            
-            # 在Windows上使用start命令启动新进程
-            if sys.platform == 'win32':
-                subprocess.Popen(
-                    [python, script],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
-                )
-            else:
-                # Linux/Mac
-                subprocess.Popen([python, script])
-            
-            # 退出当前进程
-            os._exit(0)
-        
-        # 创建后台任务
-        asyncio.create_task(delayed_restart())
-        
-        return {
-            "success": True,
-            "message": "应用将在2秒后重启"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"重启应用失败: {e}")
-        return {
-            "success": False,
-            "message": f"重启应用失败: {str(e)}"
-        }
 
 
 # 移除自动启动，由Start.py或手动启动
