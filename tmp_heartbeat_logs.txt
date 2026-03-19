@@ -1,0 +1,100 @@
+2026-03-16 13:46:01.077 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:46:01.078 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:46:01.166 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【11】没有心跳任务需要重置
+2026-03-16 13:46:01.167 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【11】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:46:16.725 | INFO     | XianyuAutoAsync:init:6256 - 【11】获取初始token...
+2026-03-16 13:46:17.545 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:46:17.548 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:46:17.655 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【11】没有心跳任务需要重置
+2026-03-16 13:46:17.656 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【11】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:46:44.457 | INFO     | XianyuAutoAsync:init:6256 - 【11】获取初始token...
+2026-03-16 13:46:46.373 | INFO     | utils.xianyu_slider_stealth:__init__:678 - 【11】检查并发限制...
+2026-03-16 13:47:01.386 | INFO     | utils.xianyu_slider_stealth:__init__:687 - 【11】实例已注册，当前并发: 1/2
+2026-03-16 13:47:01.417 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:47:01.419 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:47:01.859 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【99】没有心跳任务需要重置
+2026-03-16 13:47:01.862 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【99】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:47:12.362 | INFO     | XianyuAutoAsync:init:6256 - 【99】获取初始token...
+2026-03-16 13:47:14.956 | INFO     | utils.xianyu_slider_stealth:__init__:678 - 【99】检查并发限制...
+2026-03-16 13:47:14.956 | INFO     | utils.xianyu_slider_stealth:__init__:687 - 【99】实例已注册，当前并发: 2/2
+2026-03-16 13:47:14.962 | INFO     | utils.xianyu_slider_stealth:init_browser:755 - 【99】启动Playwright...
+2026-03-16 13:47:17.119 | INFO     | utils.xianyu_slider_stealth:init_browser:757 - 【99】Playwright启动成功
+2026-03-16 13:47:17.121 | INFO     | utils.xianyu_slider_stealth:init_browser:763 - 【99】启动浏览器，headless模式: True
+2026-03-16 13:47:17.331 | INFO     | utils.xianyu_slider_stealth:init_browser:824 - 【99】浏览器启动成功，已连接: True
+2026-03-16 13:47:17.332 | INFO     | utils.xianyu_slider_stealth:init_browser:827 - 【99】创建浏览器上下文...
+2026-03-16 13:47:17.432 | INFO     | utils.xianyu_slider_stealth:init_browser:863 - 【99】浏览器上下文创建成功
+2026-03-16 13:47:17.434 | INFO     | utils.xianyu_slider_stealth:init_browser:866 - 【99】创建新页面...
+2026-03-16 13:47:17.606 | INFO     | utils.xianyu_slider_stealth:init_browser:872 - 【99】页面创建成功（无头模式）
+2026-03-16 13:47:17.608 | INFO     | utils.xianyu_slider_stealth:init_browser:875 - 【99】添加反检测脚本...
+2026-03-16 13:47:17.623 | INFO     | utils.xianyu_slider_stealth:init_browser:877 - 【99】浏览器初始化完成
+2026-03-16 13:47:55.295 | INFO     | utils.xianyu_slider_stealth:__init__:678 - 【99】检查并发限制...
+2026-03-16 13:47:55.295 | INFO     | utils.xianyu_slider_stealth:__init__:687 - 【99】实例已注册，当前并发: 2/2
+2026-03-16 13:47:55.643 | INFO     | XianyuAutoAsync:__init__:719 - 【11】开始初始化XianyuLive...
+2026-03-16 13:47:55.645 | INFO     | XianyuAutoAsync:__init__:726 - 【11】解析cookies...
+2026-03-16 13:47:55.646 | INFO     | XianyuAutoAsync:__init__:728 - 【11】cookies解析完成，包含字段: ['cna', 'mtop_partitioned_detect', '_m_h5_tk', '_m_h5_tk_enc', 't', '_uab_collina', 'arms_uid', 'xlly_s', 'x5sec', '_bl_uid', 'sca', 'XSRF-TOKEN', '_samesite_flag_', 'cookie2', '_tb_token_', 'JSESSIONID', 'ivActionType', 'tmp0', 'siv20', 'last_u_xianyu_web', 'last_cc', 'sgcookie', 'tracknick', 'csg', 'unb', 'x5sectag', 'cbc', 'atpsida', 'tfstk', 'x5secdata', 'aui', 'cnaui']
+2026-03-16 13:47:55.647 | INFO     | XianyuAutoAsync:__init__:739 - 【11】用户ID: 696962762
+2026-03-16 13:47:55.650 | INFO     | XianyuAutoAsync:_init_order_status_handler:884 - 【11】订单状态处理器已启用
+2026-03-16 13:47:55.650 | WARNING  | XianyuAutoAsync:_register_instance:894 - 【11】实例已注册到全局字典
+2026-03-16 13:47:56.282 | INFO     | XianyuAutoAsync:init:6256 - 【11】获取初始token...
+2026-03-16 13:47:56.862 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:47:56.863 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:47:56.942 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【11】没有心跳任务需要重置
+2026-03-16 13:47:56.943 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【11】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:48:02.601 | INFO     | XianyuAutoAsync:init:6256 - 【11】获取初始token...
+2026-03-16 13:48:03.461 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:48:03.463 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:48:03.577 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【11】没有心跳任务需要重置
+2026-03-16 13:48:03.577 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【11】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:48:19.004 | INFO     | XianyuAutoAsync:init:6256 - 【11】获取初始token...
+2026-03-16 13:48:20.730 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:48:20.730 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:48:20.809 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【11】没有心跳任务需要重置
+2026-03-16 13:48:20.813 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【11】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:48:36.414 | INFO     | XianyuAutoAsync:init:6256 - 【11】获取初始token...
+2026-03-16 13:48:37.675 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:48:37.675 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:48:37.753 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【11】没有心跳任务需要重置
+2026-03-16 13:48:37.754 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【11】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:48:40.478 | INFO     | XianyuAutoAsync:__init__:719 - 【99】开始初始化XianyuLive...
+2026-03-16 13:48:40.478 | INFO     | XianyuAutoAsync:__init__:726 - 【99】解析cookies...
+2026-03-16 13:48:40.479 | INFO     | XianyuAutoAsync:__init__:728 - 【99】cookies解析完成，包含字段: ['mtop_partitioned_detect', '_m_h5_tk', '_m_h5_tk_enc', 'XSRF-TOKEN', '_samesite_flag_', 'cookie2', 't', '_tb_token_', 'xlly_s', 'cna', 'sca', '_uab_collina', 'arms_uid', 'cbc', 'JSESSIONID', 'ivActionType', 'tmp0', 'siv20', '_bl_uid', 'last_u_xianyu_web', 'last_cc', 'sgcookie', 'tracknick', 'csg', 'unb', 'atpsida', 'tfstk', 'x5secdata', 'x5sectag', 'x5sec', 'cnaui', 'aui']
+2026-03-16 13:48:40.479 | INFO     | XianyuAutoAsync:__init__:739 - 【99】用户ID: 1911169670
+2026-03-16 13:48:40.481 | INFO     | XianyuAutoAsync:_init_order_status_handler:884 - 【99】订单状态处理器已启用
+2026-03-16 13:48:40.482 | WARNING  | XianyuAutoAsync:_register_instance:894 - 【99】实例已注册到全局字典
+2026-03-16 13:48:40.837 | INFO     | XianyuAutoAsync:init:6256 - 【99】获取初始token...
+2026-03-16 13:48:41.610 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:48:41.611 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:48:41.685 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【99】没有心跳任务需要重置
+2026-03-16 13:48:41.686 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【99】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:48:47.073 | INFO     | XianyuAutoAsync:init:6256 - 【99】获取初始token...
+2026-03-16 13:48:47.854 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:48:47.854 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:48:47.927 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【99】没有心跳任务需要重置
+2026-03-16 13:48:47.928 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【99】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:48:58.334 | INFO     | XianyuAutoAsync:init:6256 - 【99】获取初始token...
+2026-03-16 13:48:59.061 | ERROR    | XianyuAutoAsync:init:6262 - 无法获取有效token，初始化失败
+2026-03-16 13:48:59.062 | INFO     | XianyuAutoAsync:init:6267 - 由于刚刚尝试过token刷新，跳过重复的初始化失败通知
+    await self.init(websocket)
+  File "/app/XianyuAutoAsync.py", line 6268, in init
+2026-03-16 13:48:59.134 | INFO     | XianyuAutoAsync:_reset_background_tasks:348 - 【99】没有心跳任务需要重置
+2026-03-16 13:48:59.135 | INFO     | XianyuAutoAsync:_reset_background_tasks:367 - 【99】任务重置完成，可以立即创建新的心跳任务
+2026-03-16 13:48:59.385 | INFO     | XianyuAutoAsync:init:6256 - 【11】获取初始token...
+2026-03-16 13:48:59.946 | INFO     | utils.xianyu_slider_stealth:__init__:678 - 【11】检查并发限制...

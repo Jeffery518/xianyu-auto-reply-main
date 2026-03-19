@@ -1,7 +1,5 @@
-# 使用Python 3.11作为基础镜像
-# 支持通过构建参数指定镜像源（解决多架构构建时的网络问题）
-# 使用方法：docker build --build-arg BASE_IMAGE=ccr.ccs.tencentyun.com/dockerp/library/python:3.11-slim-bookworm
-ARG BASE_IMAGE=python:3.11-slim-bookworm
+# 使用国内 DaoCloud 镜像源，绕过官方 Docker Hub 屏蔽
+ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim-bookworm
 FROM ${BASE_IMAGE}
 
 # 设置标签信息
