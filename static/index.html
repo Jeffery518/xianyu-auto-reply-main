@@ -1554,10 +1554,18 @@
               </div>
               <div class="col-md-2">
                 <label class="form-label">&nbsp;</label>
-                <div class="d-grid">
-                  <button class="btn btn-primary" onclick="loadRiskControlLogs()">
+                <div class="d-flex gap-2">
+                  <button class="btn btn-primary flex-grow-1" onclick="loadRiskControlLogs()">
                     <i class="bi bi-arrow-clockwise"></i> 刷新
                   </button>
+                  <div class="form-check form-switch d-flex align-items-center mb-0 mt-1 ms-1">
+                    <input class="form-check-input mt-0 me-2" type="checkbox" id="autoRefreshRiskLogs"
+                      onchange="toggleRiskLogAutoRefresh()" style="cursor: pointer; height: 1.5em; width: 3em;">
+                    <label class="form-check-label mb-0" for="autoRefreshRiskLogs" id="autoRefreshRiskLogLabel"
+                      style="cursor: pointer; white-space: nowrap;">
+                      <i class="bi bi-arrow-repeat me-1" id="autoRefreshRiskLogIcon"></i>自动刷新
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
