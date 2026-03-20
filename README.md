@@ -90,6 +90,7 @@
 
 ### 📊 系统监控
 - **实时日志** - 完整的操作日志记录和查看
+- **风控日志管理** - 自动记录并管理滑块验证等风控事件，支持状态过滤与自动刷新
 - **性能监控** - 系统资源使用情况监控
 - **健康检查** - 服务状态健康检查
 
@@ -118,7 +119,6 @@ xianyu-auto-reply/
 │   ├── cookie_manager.py          # 多账号Cookie管理和任务调度
 │   ├── ai_reply_engine.py         # AI智能回复引擎，支持多种AI模型
 │   ├── order_status_handler.py    # 订单状态处理和更新模块
-│   ├── file_log_collector.py      # 实时日志收集和管理系统
 │   ├── config.py                  # 全局配置文件管理器
 │   ├── build_binary_module.py     # 二进制模块编译脚本（Nuitka编译工具）
 │   ├── secure_confirm_ultra.py    # 自动确认发货模块（多层加密保护）
@@ -195,6 +195,7 @@ xianyu-auto-reply/
 ### 2025年1月更新
 
 **🔥 性能与安全增强**
+- ✅ 新增并完善风控日志管理，支持自动刷新与状态过滤，轻松追踪滑块验证等安全事件
 - ✅ 新增 Nuitka 二进制编译支持，核心模块可编译为 .pyd/.so 提升性能和安全性
 - ✅ 滑块验证模块增加授权期限验证机制，确保合规使用
 - ✅ Docker 构建优化，自动编译二进制模块，提升容器启动效率
@@ -291,6 +292,37 @@ docker run -d \
   --name xianyu-auto-reply \
   registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest
 ```
+
+### 方式一点五：1Panel 面板一键部署（极简推荐）⭐
+
+如果你使用的是 **1Panel** 面板，推荐通过其容器编排功能快速部署本项目，数据持久化和日志管理更方便：
+
+1. 登录 **1Panel**，导航到 **容器 -> 编排** 页面。
+2. 点击右上角 **创建编排** 按钮。
+3. **名称** 填写 `xianyu-auto-reply`，**路径** 可保持默认（面板会自动在 `/opt/1panel/docker/compose/xianyu-auto-reply` 目录下创建关联文件夹）。
+4. 在 **内容** 文本框中，粘贴以下精简版 `docker-compose.yml`（已配置国内阿里云镜像加速）：
+
+```yaml
+version: '3.8'
+
+services:
+  xianyu-auto-reply:
+    image: registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-auto-reply:latest
+    container_name: xianyu-auto-reply
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+```
+
+5. 点击右下角 **确认**，等待面板自动拉取镜像并启动容器。
+6. 部署成功后，在浏览器访问 `http://面板IP:8080` 进入系统（首次登录账号密码均为 `admin` 和 `admin123`）。
+
+> 💡 **提示**：通过 1Panel 面板提供的容器管理界面，你可以随时重启容器、升级镜像，或者一键查看项目运行的实时日志，十分便捷。
 
 ### 方式二：从源码构建部署
 
@@ -565,7 +597,6 @@ CPU_LIMIT=2.0                          # CPU限制(核心数)
 - **`ai_reply_engine.py`** - AI智能回复引擎，支持OpenAI、通义千问等多种AI模型，意图识别、上下文管理、个性化回复
 - **`secure_confirm_ultra.py`** - 自动确认发货模块，采用多层加密保护，调用闲鱼API确认发货状态，支持锁机制防并发
 - **`secure_freeshipping_ultra.py`** - 自动免拼发货模块，支持批量处理、异常恢复、智能匹配、规格识别
-- **`file_log_collector.py`** - 实时日志收集器，提供Web界面日志查看、搜索、过滤、下载和管理功能
 
 ### 🛠️ 工具模块 (`utils/`)
 - **`xianyu_utils.py`** - 闲鱼API核心工具，包含加密算法、签名生成、数据解析、Cookie处理、请求封装
