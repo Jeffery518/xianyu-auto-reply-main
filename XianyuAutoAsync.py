@@ -7,6 +7,8 @@ import os
 import random
 from enum import Enum
 from loguru import logger
+from secure_confirm_decrypted import SecureConfirm
+from secure_freeshipping_decrypted import SecureFreeshipping
 import websockets
 from utils.xianyu_utils import (
     decrypt, generate_mid, generate_uuid, trans_cookies,
@@ -768,7 +770,12 @@ class XianyuLive:
         # 自动发货已发送订单记录
         self.delivery_sent_orders = set()  # 记录已发货的订单ID，防止重复发货
 
-        self.session = None  # 用于API调用的aiohttp session
+        self.session = None
+        # 自动确认发货和自动免拼发货实例
+        self.secure_confirm = SecureConfirm(self.session, cookies_str, cookie_id, self)
+        self.secure_freeshipping = SecureFreeshipping(self.session, cookies_str, cookie_id)
+
+        # 将self作为主实例传入，使SecureConfirm可以使用XianyuAutoAsync的方法  # 用于API调用的aiohttp session
 
         # 代理配置 - 从数据库加载
         self.proxy_config = self._load_proxy_config()
@@ -5086,14 +5093,40 @@ class XianyuLive:
             logger.error(f"发送自动发货通知异常: {self._safe_str(e)}")
 
     async def auto_confirm(self, order_id, item_id=None, retry_count=0, is_internal_retry=False):
-        """自动确认发货功能已移除"""
-        logger.warning(f"【{self.cookie_id}】自动确认发货功能已移除，跳过订单: {order_id}")
-        return {"error": "自动确认发货功能已移除", "order_id": order_id}
+        try:
+            # 确保证书是最新的
+            self.secure_confirm.cookies_str = self.cookies_str
+            self.secure_confirm.session = self.session
+
+            # 如果正在刷新Token，等待
+            if hasattr(self, '_token_refreshing') and self._token_refreshing:
+                logger.info(f"【{self.cookie_id}】Token正在刷新，等待刷新完成后重试确认发货: {order_id}")
+                await self._wait_for_token_refresh()
+                # 重新获取最新的Cookie
+                self.secure_confirm.cookies_str = self.cookies_str
+
+            return await self.secure_confirm.auto_confirm(order_id, item_id, retry_count)
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】调用自动确认发货失败: {self._safe_str(e)}")
+            return {"error": f"调用自动确认发货失败: {self._safe_str(e)}", "order_id": order_id}
 
     async def auto_freeshipping(self, order_id, item_id, buyer_id, retry_count=0, is_internal_retry=False):
-        """自动免拼发货功能已移除"""
-        logger.warning(f"【{self.cookie_id}】自动免拼发货功能已移除，跳过订单: {order_id}")
-        return {"error": "自动免拼发货功能已移除", "order_id": order_id}
+        try:
+            # 确保证书是最新的
+            self.secure_freeshipping.cookies_str = self.cookies_str
+            self.secure_freeshipping.session = self.session
+
+            # 如果正在刷新Token，等待
+            if hasattr(self, '_token_refreshing') and self._token_refreshing:
+                logger.info(f"【{self.cookie_id}】Token正在刷新，等待刷新完成后重试免拼发货: {order_id}")
+                await self._wait_for_token_refresh()
+                # 重新获取最新的Cookie
+                self.secure_freeshipping.cookies_str = self.cookies_str
+
+            return await self.secure_freeshipping.auto_freeshipping(order_id, item_id, buyer_id, retry_count)
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】调用自动免拼发货失败: {self._safe_str(e)}")
+            return {"error": f"调用自动免拼发货失败: {self._safe_str(e)}", "order_id": order_id}
 
     async def fetch_order_detail_info(self, order_id: str, item_id: str = None, buyer_id: str = None, debug_headless: bool = None, sid: str = None):
         """获取订单详情信息（使用独立的锁机制，不受延迟锁影响）
@@ -5357,36 +5390,6 @@ class XianyuLive:
                 await asyncio.sleep(delay_seconds)
                 logger.info(f"延时完成")
 
-            # 如果有订单ID，执行确认发货
-            if order_id:
-                # 检查是否启用自动确认发货
-                if not self.is_auto_confirm_enabled():
-                    logger.info(f"自动确认发货已关闭，跳过订单 {order_id}")
-                else:
-                    # 检查确认发货冷却时间
-                    current_time = time.time()
-                    should_confirm = True
-
-                    if order_id in self.confirmed_orders:
-                        last_confirm_time = self.confirmed_orders[order_id]
-                        if current_time - last_confirm_time < self.order_confirm_cooldown:
-                            logger.info(f"订单 {order_id} 已在 {self.order_confirm_cooldown} 秒内确认过，跳过重复确认")
-                            should_confirm = False
-
-                    if should_confirm:
-                        logger.info(f"开始自动确认发货: 订单ID={order_id}, 商品ID={item_id}")
-                        confirm_result = await self.auto_confirm(order_id, item_id)
-                        if confirm_result.get('success'):
-                            self.confirmed_orders[order_id] = current_time
-                            logger.info(f"🎉 自动确认发货成功！订单ID: {order_id}")
-                        else:
-                            error_msg = confirm_result.get('error', '未知错误')
-                            logger.error(f"❌ 自动确认发货失败: {error_msg}")
-                            await self.send_token_refresh_notification(f"自动确认发货失败: {error_msg} (订单: {order_id})", "auto_confirm_fail")
-                            # 如果确认发货失败（特别是Session过期），停止发送发货内容，避免造成已发货但平台未记录的问题
-                            logger.error(f"【{self.cookie_id}】订单 {order_id} 平台确认发货失败，为了安全起见，停止发送发货内容 (错误: {error_msg})")
-                            return None
-
             # 检查是否存在订单ID，只有存在订单ID才处理发货内容
             if order_id:
                 # 保存订单基本信息到数据库（如果还没有详细信息）
@@ -5463,6 +5466,35 @@ class XianyuLive:
                     # 增加发货次数统计
                     db_manager.increment_delivery_times(rule['id'])
                     logger.info(f"自动发货成功: 规则ID={rule['id']}, 内容长度={len(final_content)}")
+
+                    # 在成功获取并处理完发货内容后，执行确认发货操作 (NON-BLOCKING ERROR)
+                    # 检查是否启用自动确认发货
+                    if not self.is_auto_confirm_enabled():
+                        logger.info(f"自动确认发货已关闭，跳过订单 {order_id}")
+                    else:
+                        # 检查确认发货冷却时间
+                        current_time = time.time()
+                        should_confirm = True
+
+                        if order_id in self.confirmed_orders:
+                            last_confirm_time = self.confirmed_orders[order_id]
+                            if current_time - last_confirm_time < self.order_confirm_cooldown:
+                                logger.info(f"订单 {order_id} 已在 {self.order_confirm_cooldown} 秒内确认过，跳过重复确认")
+                                should_confirm = False
+
+                        if should_confirm:
+                            logger.info(f"开始自动确认发货: 订单ID={order_id}, 商品ID={item_id}")
+                            confirm_result = await self.auto_confirm(order_id, item_id)
+                            if confirm_result.get('success'):
+                                self.confirmed_orders[order_id] = current_time
+                                logger.info(f"🎉 自动确认发货成功！订单ID: {order_id}")
+                            else:
+                                error_msg = confirm_result.get('error', '未知错误')
+                                logger.error(f"❌ 自动确认发货失败: {error_msg}")
+                                await self.send_token_refresh_notification(f"自动确认发货失败: {error_msg} (订单: {order_id})", "auto_confirm_fail")
+                                logger.error(f"【{self.cookie_id}】订单 {order_id} 平台确认发货失败，但不影响发货内容发送 (错误: {error_msg})")
+                                # DO NOT return None here, so final_content is still returned to be sent
+
                     return final_content
                 else:
                     logger.warning(f"获取发货内容失败: 规则ID={rule['id']}")
@@ -7795,6 +7827,7 @@ class XianyuLive:
         if self.session:
             await self.session.close()
             self.session = None
+
 
     async def get_api_reply(self, msg_time, user_url, send_user_id, send_user_name, item_id, send_message, chat_id):
         """调用API获取回复消息"""
