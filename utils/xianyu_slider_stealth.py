@@ -1985,6 +1985,24 @@ class XianyuSliderStealth:
             selected_strategy = "high_success_biomimetic"
             use_exploration = False
             
+            # 动态调整策略，如果重试次数较高，加大抖动和超调，增加随机性
+            if attempt > 1:
+                # 调整超调，不要太大避免超过边界被认为是机器
+                overshoot_ratio = max(1.02, min(1.2, overshoot_ratio * random.uniform(0.9, 1.1)))
+                # 调整步数，重试时稍微增加步数使其更平滑
+                steps = int(steps * random.uniform(1.2, 1.6))
+                # 增加延迟，降低速度
+                base_delay *= random.uniform(1.5, 2.5)
+                # 增加抖动
+                y_jitter_max *= random.uniform(1.2, 2.0)
+
+                # 第3次及以后使用极慢模式
+                if attempt >= 3:
+                    base_delay *= random.uniform(1.5, 2.0)
+                    steps = int(steps * random.uniform(1.2, 1.5))
+
+                selected_strategy = f"high_success_biomimetic_retry_{attempt}"
+
             logger.info(f"【{self.pure_user_id}】📐 使用高成功率仿生策略: 超调{(overshoot_ratio-1)*100:.1f}%, "
                        f"步数{steps}, 延迟{base_delay*1000:.1f}ms, 偏离{y_jitter_max:.1f}px")
             
@@ -3324,14 +3342,26 @@ class XianyuSliderStealth:
                 return False
             
             # 容器还在，但没有失败提示，可能还在验证中或验证失败
-            # 再等待一小段时间后再次检查
-            time.sleep(0.5)
+            # 再等待一小段时间后再次检查，如果还是存在，并且重试次数过多，可能需要更长时间的等待（防止网速慢或者headless模式加载慢）
+            time.sleep(2.0)
             container_exists, container_visible = check_container_status()
             
             if not container_exists or not container_visible:
                 logger.info(f"【{self.pure_user_id}】✓ 滑块容器已消失，验证成功")
                 return True
             
+            # 检查是否有绿色的成功标志
+            try:
+                if target_frame == self.page:
+                    success_icon = self.page.query_selector(".nc-lang-cnt[data-nc-lang='_yes']")
+                else:
+                    success_icon = target_frame.query_selector(".nc-lang-cnt[data-nc-lang='_yes']")
+                if success_icon and success_icon.is_visible():
+                    logger.info(f"【{self.pure_user_id}】✓ 检测到绿色成功标志，验证成功")
+                    return True
+            except:
+                pass
+
             # 容器仍然存在，且没有失败提示，可能是验证失败但没有显示失败提示
             # 或者验证还在进行中，但为了不无限等待，返回失败
             logger.warning(f"【{self.pure_user_id}】滑块容器仍存在且可见，且未检测到失败提示，但验证可能失败")
@@ -3552,9 +3582,15 @@ class XianyuSliderStealth:
         - 总耗时控制在0.9-1.55秒
         """
         failure_records = []
-        current_strategy = 'ultra_fast_optimized'  # 优化后的极速策略
         
         for attempt in range(1, max_retries + 1):
+            # 动态更新策略名称，以便在日志中正确显示
+            if attempt == 1:
+                current_strategy = 'ultra_fast_optimized_1st'
+            elif attempt == 2:
+                current_strategy = 'ultra_fast_optimized_2nd'
+            else:
+                current_strategy = 'ultra_fast_optimized_retry'
             try:
                 logger.info(f"【{self.pure_user_id}】开始处理滑块验证... (第{attempt}/{max_retries}次尝试)")
                 
@@ -3609,14 +3645,15 @@ class XianyuSliderStealth:
                 if self.check_verification_success_fast(slider_button):
                     logger.info(f"【{self.pure_user_id}】✅ 滑块验证成功! (第{attempt}次尝试)")
                     
-                    # 📊 记录策略成功
-                    strategy_stats.record_attempt(attempt, current_strategy, success=True)
-                    logger.info(f"【{self.pure_user_id}】📊 记录策略: 第{attempt}次-{current_strategy}策略-成功")
-                    
                     # 🤖 记录到自适应策略管理器
                     if hasattr(self, 'current_trajectory_data'):
                         used_strategy = self.current_trajectory_data.get("random_params", {}).get("strategy", "unknown")
                         adaptive_strategy_manager.record_result(used_strategy, success=True)
+                        current_strategy = used_strategy # 同步当前的策略名称记录
+
+                    # 📊 记录策略成功
+                    strategy_stats.record_attempt(attempt, current_strategy, success=True)
+                    logger.info(f"【{self.pure_user_id}】📊 记录策略: 第{attempt}次-{current_strategy}策略-成功")
                     
                     # 保存成功记录用于学习
                     if self.enable_learning and hasattr(self, 'current_trajectory_data'):
@@ -3636,14 +3673,15 @@ class XianyuSliderStealth:
                 else:
                     logger.warning(f"【{self.pure_user_id}】❌ 第{attempt}次验证失败")
                     
-                    # 📊 记录策略失败
-                    strategy_stats.record_attempt(attempt, current_strategy, success=False)
-                    logger.info(f"【{self.pure_user_id}】📊 记录策略: 第{attempt}次-{current_strategy}策略-失败")
-                    
                     # 🤖 记录到自适应策略管理器
                     if hasattr(self, 'current_trajectory_data'):
                         used_strategy = self.current_trajectory_data.get("random_params", {}).get("strategy", "unknown")
                         adaptive_strategy_manager.record_result(used_strategy, success=False)
+                        current_strategy = used_strategy # 同步当前的策略名称记录
+
+                    # 📊 记录策略失败
+                    strategy_stats.record_attempt(attempt, current_strategy, success=False)
+                    logger.info(f"【{self.pure_user_id}】📊 记录策略: 第{attempt}次-{current_strategy}策略-失败")
                     
                     # 分析失败原因
                     if hasattr(self, 'current_trajectory_data'):
