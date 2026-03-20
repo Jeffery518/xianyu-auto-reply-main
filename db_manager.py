@@ -5840,12 +5840,13 @@ class DBManager:
             logger.error(f"更新风控日志失败: {e}")
             return False
 
-    def get_risk_control_logs(self, cookie_id: str = None, limit: int = 100, offset: int = 0) -> List[Dict]:
+    def get_risk_control_logs(self, cookie_id: str = None, status: str = None, limit: int = 100, offset: int = 0) -> List[Dict]:
         """
         获取风控日志列表
 
         Args:
             cookie_id: Cookie ID，为None时获取所有日志
+            status: 处理状态，为None时获取所有状态
             limit: 限制返回数量
             offset: 偏移量
 
@@ -5856,23 +5857,26 @@ class DBManager:
             with self.lock:
                 cursor = self.conn.cursor()
 
+                query = '''
+                    SELECT r.*, c.id as cookie_name
+                    FROM risk_control_logs r
+                    LEFT JOIN cookies c ON r.cookie_id = c.id
+                    WHERE 1=1
+                '''
+                params = []
+
                 if cookie_id:
-                    cursor.execute('''
-                        SELECT r.*, c.id as cookie_name
-                        FROM risk_control_logs r
-                        LEFT JOIN cookies c ON r.cookie_id = c.id
-                        WHERE r.cookie_id = ?
-                        ORDER BY r.created_at DESC
-                        LIMIT ? OFFSET ?
-                    ''', (cookie_id, limit, offset))
-                else:
-                    cursor.execute('''
-                        SELECT r.*, c.id as cookie_name
-                        FROM risk_control_logs r
-                        LEFT JOIN cookies c ON r.cookie_id = c.id
-                        ORDER BY r.created_at DESC
-                        LIMIT ? OFFSET ?
-                    ''', (limit, offset))
+                    query += ' AND r.cookie_id = ?'
+                    params.append(cookie_id)
+
+                if status:
+                    query += ' AND r.processing_status = ?'
+                    params.append(status)
+
+                query += ' ORDER BY r.created_at DESC LIMIT ? OFFSET ?'
+                params.extend([limit, offset])
+
+                cursor.execute(query, params)
 
                 columns = [description[0] for description in cursor.description]
                 logs = []
@@ -5886,12 +5890,13 @@ class DBManager:
             logger.error(f"获取风控日志失败: {e}")
             return []
 
-    def get_risk_control_logs_count(self, cookie_id: str = None) -> int:
+    def get_risk_control_logs_count(self, cookie_id: str = None, status: str = None) -> int:
         """
         获取风控日志总数
 
         Args:
             cookie_id: Cookie ID，为None时获取所有日志数量
+            status: 处理状态，为None时获取所有状态
 
         Returns:
             int: 日志总数
@@ -5900,10 +5905,18 @@ class DBManager:
             with self.lock:
                 cursor = self.conn.cursor()
 
+                query = 'SELECT COUNT(*) FROM risk_control_logs WHERE 1=1'
+                params = []
+
                 if cookie_id:
-                    cursor.execute('SELECT COUNT(*) FROM risk_control_logs WHERE cookie_id = ?', (cookie_id,))
-                else:
-                    cursor.execute('SELECT COUNT(*) FROM risk_control_logs')
+                    query += ' AND cookie_id = ?'
+                    params.append(cookie_id)
+
+                if status:
+                    query += ' AND processing_status = ?'
+                    params.append(status)
+
+                cursor.execute(query, params)
 
                 return cursor.fetchone()[0]
         except Exception as e:

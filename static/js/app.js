@@ -66,6 +66,20 @@ function showSection(sectionName) {
         }
     });
 
+    // 清理风控日志自动刷新
+    if (sectionName !== 'risk-control-logs' && typeof riskLogAutoRefreshInterval !== 'undefined' && riskLogAutoRefreshInterval) {
+        clearInterval(riskLogAutoRefreshInterval);
+        riskLogAutoRefreshInterval = null;
+        const autoRefresh = document.getElementById('autoRefreshRiskLogs');
+        if (autoRefresh) {
+            autoRefresh.checked = false;
+            const label = document.getElementById('autoRefreshRiskLogLabel');
+            const icon = document.getElementById('autoRefreshRiskLogIcon');
+            if (label) label.classList.remove('text-primary', 'fw-bold');
+            if (icon) icon.classList.remove('auto-refresh-indicator');
+        }
+    }
+
     // 根据不同section加载对应数据
     switch (sectionName) {
         case 'dashboard':        // 【仪表盘菜单】
@@ -11034,6 +11048,29 @@ async function downloadLogFile(fileName, buttonEl) {
 let currentRiskLogStatus = '';
 let currentRiskLogOffset = 0;
 const riskLogLimit = 100;
+let riskLogAutoRefreshInterval = null;
+
+// 切换风控日志自动刷新
+function toggleRiskLogAutoRefresh() {
+    const autoRefresh = document.getElementById('autoRefreshRiskLogs');
+    const label = document.getElementById('autoRefreshRiskLogLabel');
+    const icon = document.getElementById('autoRefreshRiskLogIcon');
+
+    if (autoRefresh.checked) {
+        // 开启自动刷新
+        riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset), 5000); // 每5秒刷新
+        label.classList.add('text-primary', 'fw-bold');
+        icon.classList.add('auto-refresh-indicator');
+    } else {
+        // 关闭自动刷新
+        if (riskLogAutoRefreshInterval) {
+            clearInterval(riskLogAutoRefreshInterval);
+            riskLogAutoRefreshInterval = null;
+        }
+        label.classList.remove('text-primary', 'fw-bold');
+        icon.classList.remove('auto-refresh-indicator');
+    }
+}
 
 // 加载风控日志
 async function loadRiskControlLogs(offset = 0) {
@@ -11052,6 +11089,9 @@ async function loadRiskControlLogs(offset = 0) {
     let url = `/admin/risk-control-logs?limit=${limit}&offset=${offset}`;
     if (cookieId) {
         url += `&cookie_id=${cookieId}`;
+    }
+    if (currentRiskLogStatus) {
+        url += `&status=${currentRiskLogStatus}`;
     }
 
     try {

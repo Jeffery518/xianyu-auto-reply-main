@@ -5400,17 +5400,18 @@ def delete_user(user_id: int, admin_user: Dict[str, Any] = Depends(require_admin
 @app.get('/admin/risk-control-logs')
 async def get_admin_risk_control_logs(
     cookie_id: str = None,
+    status: str = None,
     limit: int = 100,
     offset: int = 0,
     admin_user: Dict[str, Any] = Depends(require_admin)
 ):
     """获取风控日志（管理员专用）"""
     try:
-        log_with_user('info', f"查询风控日志: cookie_id={cookie_id}, limit={limit}, offset={offset}", admin_user)
+        log_with_user('info', f"查询风控日志: cookie_id={cookie_id}, status={status}, limit={limit}, offset={offset}", admin_user)
 
         # 获取风控日志
-        logs = db_manager.get_risk_control_logs(cookie_id=cookie_id, limit=limit, offset=offset)
-        total_count = db_manager.get_risk_control_logs_count(cookie_id=cookie_id)
+        logs = db_manager.get_risk_control_logs(cookie_id=cookie_id, status=status, limit=limit, offset=offset)
+        total_count = db_manager.get_risk_control_logs_count(cookie_id=cookie_id, status=status)
 
         log_with_user('info', f"风控日志查询成功，共 {len(logs)} 条记录，总计 {total_count} 条", admin_user)
 
