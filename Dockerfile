@@ -116,6 +116,9 @@ RUN node --version
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /ms-playwright /ms-playwright
 
+# 安装Playwright所需的浏览器系统依赖
+RUN playwright install-deps chromium
+
 # 复制项目文件
 COPY . .
 

@@ -2169,6 +2169,8 @@ class XianyuLive:
 
             # 发送Token刷新请求
             api_url = API_ENDPOINTS.get('token')
+            if not api_url:
+                api_url = 'https://h5api.m.goofish.com/h5/mtop.taobao.idlemessage.pc.login.token/1.0/'
             logger.info(f"【{self.cookie_id}】正在刷新Token... API: {api_url}")
             
             # 详细调试信息（仅debug级别）
