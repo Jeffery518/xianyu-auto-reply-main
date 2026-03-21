@@ -135,6 +135,12 @@ function showSection(sectionName) {
                     console.log('首次进入风控日志页面，自动加载日志...');
                     loadRiskControlLogs();
                     loadCookieFilterOptions();
+
+                    // 恢复自动刷新状态
+                    const autoRefreshRiskLogs = document.getElementById('autoRefreshRiskLogs');
+                    if (autoRefreshRiskLogs && autoRefreshRiskLogs.checked && !riskLogAutoRefreshInterval) {
+                        riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset), 5000);
+                    }
                 }
             }, 100);
             break;
@@ -2630,9 +2636,14 @@ async function activateCommentTemplate(accountId, templateId) {
 // HTML转义函数
 function escapeHtml(text) {
     if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
 }
 
 // 跳转到自动回复页面并选择指定账号
@@ -7036,13 +7047,6 @@ function formatDateTime(dateString) {
     return date.toLocaleString('zh-CN');
 }
 
-// HTML转义函数
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
 
 // ================================
 // 【商品回复管理菜单】相关功能
@@ -10487,12 +10491,6 @@ function displayTableData(data, columns) {
     }).join('');
 }
 
-// HTML转义函数
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
 
 // 更新表格信息
 function updateTableInfo(tableName, recordCount) {
