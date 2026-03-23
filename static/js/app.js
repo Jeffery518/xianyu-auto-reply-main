@@ -66,18 +66,10 @@ function showSection(sectionName) {
         }
     });
 
-    // 清理风控日志自动刷新
+    // 清理风控日志自动刷新，但不改变勾选状态
     if (sectionName !== 'risk-control-logs' && typeof riskLogAutoRefreshInterval !== 'undefined' && riskLogAutoRefreshInterval) {
         clearInterval(riskLogAutoRefreshInterval);
         riskLogAutoRefreshInterval = null;
-        const autoRefresh = document.getElementById('autoRefreshRiskLogs');
-        if (autoRefresh) {
-            autoRefresh.checked = false;
-            const label = document.getElementById('autoRefreshRiskLogLabel');
-            const icon = document.getElementById('autoRefreshRiskLogIcon');
-            if (label) label.classList.remove('text-primary', 'fw-bold');
-            if (icon) icon.classList.remove('auto-refresh-indicator');
-        }
     }
 
     // 根据不同section加载对应数据
