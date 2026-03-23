@@ -132,7 +132,11 @@ function showSection(sectionName) {
                     // 恢复自动刷新状态
                     const autoRefreshRiskLogs = document.getElementById('autoRefreshRiskLogs');
                     if (autoRefreshRiskLogs && autoRefreshRiskLogs.checked && !riskLogAutoRefreshInterval) {
-                        riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset), 5000);
+                        riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset, true), 5000);
+                        const label = document.getElementById('autoRefreshRiskLogLabel');
+                        const icon = document.getElementById('autoRefreshRiskLogIcon');
+                        if (label) label.classList.add('text-primary', 'fw-bold');
+                        if (icon) icon.classList.add('auto-refresh-indicator');
                     }
                 }
             }, 100);
@@ -11050,7 +11054,7 @@ function toggleRiskLogAutoRefresh() {
 
     if (autoRefresh.checked) {
         // 开启自动刷新
-        riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset), 5000); // 每5秒刷新
+        riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset, true), 5000); // 每5秒刷新
         label.classList.add('text-primary', 'fw-bold');
         icon.classList.add('auto-refresh-indicator');
     } else {
@@ -11065,7 +11069,7 @@ function toggleRiskLogAutoRefresh() {
 }
 
 // 加载风控日志
-async function loadRiskControlLogs(offset = 0) {
+async function loadRiskControlLogs(offset = 0, isAutoRefresh = false) {
     const token = localStorage.getItem('auth_token');
     const cookieId = document.getElementById('riskLogCookieFilter').value;
     const limit = document.getElementById('riskLogLimit').value;
@@ -11074,9 +11078,11 @@ async function loadRiskControlLogs(offset = 0) {
     const logContainer = document.getElementById('riskLogContainer');
     const noLogsDiv = document.getElementById('noRiskLogs');
 
-    loadingDiv.style.display = 'block';
-    logContainer.style.display = 'none';
-    noLogsDiv.style.display = 'none';
+    if (!isAutoRefresh) {
+        loadingDiv.style.display = 'block';
+        logContainer.style.display = 'none';
+        noLogsDiv.style.display = 'none';
+    }
 
     let url = `${apiBase}/admin/risk-control-logs?limit=${limit}&offset=${offset}&_t=${Date.now()}`;
     if (cookieId) {
@@ -11095,23 +11101,32 @@ async function loadRiskControlLogs(offset = 0) {
         });
 
         const data = await response.json();
-        loadingDiv.style.display = 'none';
+        if (!isAutoRefresh) {
+            loadingDiv.style.display = 'none';
+        }
 
         if (data.success && data.data && data.data.length > 0) {
             displayRiskControlLogs(data.data);
             updateRiskLogInfo(data);
             updateRiskLogPagination(data);
-            logContainer.style.display = 'block';
+            if (!isAutoRefresh) {
+                logContainer.style.display = 'block';
+            }
         } else {
-            noLogsDiv.style.display = 'block';
+            if (!isAutoRefresh) {
+                noLogsDiv.style.display = 'block';
+            }
             updateRiskLogInfo({ total: 0, data: [] });
         }
 
         currentRiskLogOffset = offset;
     } catch (error) {
         console.error('加载风控日志失败:', error);
-        loadingDiv.style.display = 'none';
-        noLogsDiv.style.display = 'block';
+        if (!isAutoRefresh) {
+            loadingDiv.style.display = 'none';
+            noLogsDiv.style.display = 'block';
+            logContainer.style.display = 'none';
+        }
         showToast('加载风控日志失败', 'danger');
     }
 }
