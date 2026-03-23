@@ -70,14 +70,7 @@ function showSection(sectionName) {
     if (sectionName !== 'risk-control-logs' && typeof riskLogAutoRefreshInterval !== 'undefined' && riskLogAutoRefreshInterval) {
         clearInterval(riskLogAutoRefreshInterval);
         riskLogAutoRefreshInterval = null;
-        const autoRefresh = document.getElementById('autoRefreshRiskLogs');
-        if (autoRefresh) {
-            autoRefresh.checked = false;
-            const label = document.getElementById('autoRefreshRiskLogLabel');
-            const icon = document.getElementById('autoRefreshRiskLogIcon');
-            if (label) label.classList.remove('text-primary', 'fw-bold');
-            if (icon) icon.classList.remove('auto-refresh-indicator');
-        }
+        // Do not clear the checked state so it can be restored when switching back
     }
 
     // 根据不同section加载对应数据
@@ -10707,7 +10700,7 @@ async function loadSystemLogs() {
     logContainer.style.display = 'none';
     noLogsDiv.style.display = 'none';
 
-    let url = `/admin/logs?lines=${lines}`;
+    let url = `${apiBase}/admin/logs?lines=${lines}&_t=${Date.now()}`;
     if (level) {
         url += `&level=${level}`;
     }
@@ -10716,7 +10709,8 @@ async function loadSystemLogs() {
         const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${token}`
-            }
+            },
+            cache: 'no-store'
         });
 
         const data = await response.json();
@@ -11084,7 +11078,7 @@ async function loadRiskControlLogs(offset = 0) {
     logContainer.style.display = 'none';
     noLogsDiv.style.display = 'none';
 
-    let url = `/admin/risk-control-logs?limit=${limit}&offset=${offset}`;
+    let url = `${apiBase}/admin/risk-control-logs?limit=${limit}&offset=${offset}&_t=${Date.now()}`;
     if (cookieId) {
         url += `&cookie_id=${cookieId}`;
     }
@@ -11096,7 +11090,8 @@ async function loadRiskControlLogs(offset = 0) {
         const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${token}`
-            }
+            },
+            cache: 'no-store'
         });
 
         const data = await response.json();
@@ -11236,10 +11231,11 @@ function filterRiskLogsByStatus(status) {
 async function loadCookieFilterOptions() {
     try {
         const token = localStorage.getItem('auth_token');
-        const response = await fetch('/admin/cookies', {
+        const response = await fetch(`${apiBase}/admin/cookies?_t=${Date.now()}`, {
             headers: {
                 'Authorization': `Bearer ${token}`
-            }
+            },
+            cache: 'no-store'
         });
 
         if (response.ok) {
@@ -11302,7 +11298,7 @@ async function clearRiskControlLogs() {
         const token = localStorage.getItem('auth_token');
 
         // 调用后端批量清空接口（管理员）
-        const response = await fetch('/admin/data/risk_control_logs', {
+        const response = await fetch(`${apiBase}/admin/data/risk_control_logs`, {
             method: 'DELETE',
             headers: {
                 'Authorization': `Bearer ${token}`
