@@ -11109,13 +11109,12 @@ async function loadRiskControlLogs(offset = 0, isAutoRefresh = false) {
             displayRiskControlLogs(data.data);
             updateRiskLogInfo(data);
             updateRiskLogPagination(data);
-            if (!isAutoRefresh) {
-                logContainer.style.display = 'block';
-            }
+
+            logContainer.style.display = 'block';
+            noLogsDiv.style.display = 'none';
         } else {
-            if (!isAutoRefresh) {
-                noLogsDiv.style.display = 'block';
-            }
+            noLogsDiv.style.display = 'block';
+            logContainer.style.display = 'none';
             updateRiskLogInfo({ total: 0, data: [] });
         }
 
@@ -11126,8 +11125,8 @@ async function loadRiskControlLogs(offset = 0, isAutoRefresh = false) {
             loadingDiv.style.display = 'none';
             noLogsDiv.style.display = 'block';
             logContainer.style.display = 'none';
+            showToast('加载风控日志失败', 'danger');
         }
-        showToast('加载风控日志失败', 'danger');
     }
 }
 
