@@ -11054,9 +11054,11 @@ function toggleRiskLogAutoRefresh() {
 
     if (autoRefresh.checked) {
         // 开启自动刷新
-        riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset, true), 5000); // 每5秒刷新
-        label.classList.add('text-primary', 'fw-bold');
-        icon.classList.add('auto-refresh-indicator');
+        if (!riskLogAutoRefreshInterval) {
+            riskLogAutoRefreshInterval = setInterval(() => loadRiskControlLogs(currentRiskLogOffset, true), 5000); // 每5秒刷新
+            label.classList.add('text-primary', 'fw-bold');
+            icon.classList.add('auto-refresh-indicator');
+        }
     } else {
         // 关闭自动刷新
         if (riskLogAutoRefreshInterval) {
