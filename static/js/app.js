@@ -11070,6 +11070,12 @@ function toggleRiskLogAutoRefresh() {
 
 // 加载风控日志
 async function loadRiskControlLogs(offset = 0, isAutoRefresh = false) {
+    // 防御性处理：如果是事件对象（点击刷新按钮等），则使用默认值0
+    if (typeof offset === 'object' || isNaN(offset)) {
+        offset = 0;
+        isAutoRefresh = false;
+    }
+
     const token = localStorage.getItem('auth_token');
     const cookieId = document.getElementById('riskLogCookieFilter').value;
     const limit = document.getElementById('riskLogLimit').value;
